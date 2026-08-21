@@ -4,52 +4,94 @@ import { isValidDateString, isValidTimeOfDay } from '../../common/utils/time';
 const timeString = z.string().refine(isValidTimeOfDay, 'Must be HH:mm (24h)');
 const dateString = z.string().refine(isValidDateString, 'Must be YYYY-MM-DD');
 
-const baseScheduleFields = {
-  activityId: z.string().uuid(),
-  startTime: timeString,
-  endTime: timeString,
-  recurrenceType: z.enum(['DAILY', 'WEEKDAYS', 'ONE_TIME']),
-  daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).optional(),
-  oneTimeDate: dateString.optional(),
-  effectiveFrom: dateString.optional(),
-  alarmEnabled: z.boolean().nullable().optional(),
-  alarmOffsetMinutes: z.number().int().min(0).max(180).nullable().optional(),
-  override: z.boolean().optional().default(false),
-};
+// Wire-shape enums as sent by the frontend (frontend-requirements / types/schedule.ts),
+// mapped to the internal domain enums used throughout schedules.service.ts.
+const updateScopeWire = z.enum(['THIS_OCCURRENCE', 'THIS_AND_FUTURE', 'ENTIRE_RULE']);
+const SCOPE_WIRE_TO_DOMAIN = { THIS_OCCURRENCE: 'ONLY', THIS_AND_FUTURE: 'FUTURE', ENTIRE_RULE: 'ALL' } as const;
 
-export const createScheduleEntrySchema = z
-  .object(baseScheduleFields)
+// The frontend's conflict-resolution dialog offers three "proceed anyway" choices; the
+// backend does not yet differentiate their effects beyond "create/update despite the
+// conflict" (see AppError.scheduleConflict / findConflictingEntries), so any of them maps
+// to the same override behavior. This is a deliberate simplification, not a bug.
+const conflictResolutionWire = z.enum(['KEEP_BOTH', 'SHIFT_AFFECTED', 'SKIP_AFFECTED_TODAY']).optional();
+
+const recurrenceSchema = z
+  .object({
+    type: z.enum(['DAILY', 'WEEKDAYS', 'ONE_TIME']),
+    daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+    date: dateString.optional(),
+  })
   .strict()
-  .refine((v) => v.startTime !== v.endTime, { message: 'startTime and endTime must differ', path: ['endTime'] })
-  .refine((v) => v.recurrenceType !== 'WEEKDAYS' || (v.daysOfWeek && v.daysOfWeek.length > 0), {
+  .refine((v) => v.type !== 'WEEKDAYS' || (v.daysOfWeek && v.daysOfWeek.length > 0), {
     message: 'daysOfWeek is required for WEEKDAYS recurrence',
     path: ['daysOfWeek'],
   })
-  .refine((v) => v.recurrenceType !== 'ONE_TIME' || !!v.oneTimeDate, {
-    message: 'oneTimeDate is required for ONE_TIME recurrence',
-    path: ['oneTimeDate'],
+  .refine((v) => v.type !== 'ONE_TIME' || !!v.date, {
+    message: 'date is required for ONE_TIME recurrence',
+    path: ['date'],
   });
+
+export const createScheduleEntrySchema = z
+  .object({
+    activityId: z.string().uuid(),
+    startTime: timeString,
+    endTime: timeString,
+    recurrence: recurrenceSchema,
+    effectiveFrom: dateString.optional(),
+    alarmEnabled: z.boolean().nullable().optional(),
+    alarmOffsetMinutes: z.number().int().min(0).max(180).nullable().optional(),
+    resolution: conflictResolutionWire,
+    override: z.boolean().optional(),
+  })
+  .strict()
+  .refine((v) => v.startTime !== v.endTime, { message: 'startTime and endTime must differ', path: ['endTime'] })
+  .transform((v) => ({
+    activityId: v.activityId,
+    startTime: v.startTime,
+    endTime: v.endTime,
+    recurrenceType: v.recurrence.type,
+    daysOfWeek: v.recurrence.daysOfWeek,
+    oneTimeDate: v.recurrence.date,
+    effectiveFrom: v.effectiveFrom,
+    alarmEnabled: v.alarmEnabled,
+    alarmOffsetMinutes: v.alarmOffsetMinutes,
+    override: v.override ?? !!v.resolution,
+  }));
 
 export const updateScheduleEntrySchema = z
   .object({
     activityId: z.string().uuid().optional(),
     startTime: timeString.optional(),
     endTime: timeString.optional(),
-    recurrenceType: z.enum(['DAILY', 'WEEKDAYS', 'ONE_TIME']).optional(),
-    daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).optional(),
-    oneTimeDate: dateString.optional(),
+    recurrence: recurrenceSchema.optional(),
     alarmEnabled: z.boolean().nullable().optional(),
     alarmOffsetMinutes: z.number().int().min(0).max(180).nullable().optional(),
     isActive: z.boolean().optional(),
-    override: z.boolean().optional().default(false),
-    scope: z.enum(['ONLY', 'FUTURE', 'ALL']).optional().default('ALL'),
+    scope: updateScopeWire.optional().default('THIS_AND_FUTURE'),
+    // Wire field is `effectiveDate`; `date` is also accepted for direct API/curl use.
+    effectiveDate: dateString.optional(),
     date: dateString.optional(),
+    resolution: conflictResolutionWire,
+    override: z.boolean().optional(),
   })
   .strict()
-  .refine((v) => v.scope === 'ALL' || !!v.date, {
-    message: 'date is required when scope is ONLY or FUTURE',
-    path: ['date'],
-  });
+  .transform((v) => ({
+    activityId: v.activityId,
+    startTime: v.startTime,
+    endTime: v.endTime,
+    recurrenceType: v.recurrence?.type,
+    daysOfWeek: v.recurrence?.daysOfWeek,
+    oneTimeDate: v.recurrence?.date,
+    alarmEnabled: v.alarmEnabled,
+    alarmOffsetMinutes: v.alarmOffsetMinutes,
+    isActive: v.isActive,
+    scope: SCOPE_WIRE_TO_DOMAIN[v.scope],
+    // "This and future" / "this occurrence" scoped edits with no explicit date default to
+    // today (in the caller's timezone, applied in schedules.service.ts) — the frontend does
+    // not currently collect an effective date from the user for these actions.
+    date: v.effectiveDate ?? v.date,
+    override: v.override ?? !!v.resolution,
+  }));
 
 export const scheduleIdParamSchema = z.object({ id: z.string().uuid() });
 
@@ -64,6 +106,12 @@ export const listSchedulesQuerySchema = z
   })
   .strict();
 
+export const deleteScheduleEntryQuerySchema = z
+  .object({
+    scope: updateScopeWire.optional(),
+  })
+  .strict();
+
 export const createExceptionSchema = z
   .object({
     sourceScheduleEntryId: z.string().uuid().nullable().optional(),
@@ -72,8 +120,9 @@ export const createExceptionSchema = z
     startTime: timeString.optional(),
     endTime: timeString.optional(),
     action: z.enum(['MOVE', 'SKIP', 'ADD', 'REPLACE']),
-    reason: z.string().trim().max(500).optional(),
-    override: z.boolean().optional().default(false),
+    reason: z.string().trim().max(500).nullable().optional(),
+    resolution: conflictResolutionWire,
+    override: z.boolean().optional(),
   })
   .strict()
   .refine((v) => v.action === 'SKIP' || (!!v.startTime && !!v.endTime), {
@@ -83,17 +132,20 @@ export const createExceptionSchema = z
   .refine((v) => v.action !== 'ADD' || !v.sourceScheduleEntryId, {
     message: 'ADD exceptions must not reference a sourceScheduleEntryId',
     path: ['sourceScheduleEntryId'],
-  });
+  })
+  .transform((v) => ({ ...v, reason: v.reason ?? undefined, override: v.override ?? !!v.resolution }));
 
 export const updateExceptionSchema = z
   .object({
     startTime: timeString.optional(),
     endTime: timeString.optional(),
     reason: z.string().trim().max(500).nullable().optional(),
-    override: z.boolean().optional().default(false),
+    resolution: conflictResolutionWire,
+    override: z.boolean().optional(),
   })
   .strict()
-  .refine((v) => Object.keys(v).length > 0, 'At least one field must be provided');
+  .refine((v) => Object.keys(v).length > 0, 'At least one field must be provided')
+  .transform((v) => ({ ...v, override: v.override ?? !!v.resolution }));
 
 export const exceptionIdParamSchema = z.object({ id: z.string().uuid() });
 

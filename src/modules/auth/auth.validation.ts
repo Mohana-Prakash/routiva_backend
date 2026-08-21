@@ -42,9 +42,12 @@ export const forgotPasswordSchema = z
 export const resetPasswordSchema = z
   .object({
     token: z.string().min(1).max(512),
-    newPassword: passwordSchema,
+    // Wire field is `password` (types/auth.ts ResetPasswordInput); mapped internally to
+    // `newPassword` to distinguish it clearly from the token in the service layer.
+    password: passwordSchema,
   })
-  .strict();
+  .strict()
+  .transform((v) => ({ token: v.token, newPassword: v.password }));
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

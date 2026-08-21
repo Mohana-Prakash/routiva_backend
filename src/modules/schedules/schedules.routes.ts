@@ -7,6 +7,7 @@ import {
   createExceptionSchema,
   createScheduleEntrySchema,
   dateParamSchema,
+  deleteScheduleEntryQuerySchema,
   exceptionIdParamSchema,
   listSchedulesQuerySchema,
   scheduleIdParamSchema,
@@ -42,4 +43,8 @@ schedulesRouter.patch(
   validate({ params: scheduleIdParamSchema, body: updateScheduleEntrySchema }),
   asyncHandler(schedulesController.update),
 );
-schedulesRouter.delete('/:id', validate({ params: scheduleIdParamSchema }), asyncHandler(schedulesController.remove));
+schedulesRouter.delete(
+  '/:id',
+  validate({ params: scheduleIdParamSchema, query: deleteScheduleEntryQuerySchema }),
+  asyncHandler(schedulesController.remove),
+);

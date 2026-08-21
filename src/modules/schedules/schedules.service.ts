@@ -87,7 +87,7 @@ export const schedulesService = {
         ),
     );
 
-    return materialized.map(({ occurrence, log }) => ({ ...occurrence, activityLogId: log.id, status: log.status }));
+    return materialized;
   },
 
   async createEntry(userId: string, timezone: string, input: CreateScheduleEntryInput) {
@@ -124,7 +124,7 @@ export const schedulesService = {
       const conflicts = findConflictingEntries(candidate, existing);
       if (conflicts.length > 0) {
         throw AppError.scheduleConflict('This schedule overlaps with existing entries', {
-          conflicts: conflicts.map((c) => ({ id: c.id, activityId: c.activityId, startTime: c.startTime, endTime: c.endTime })),
+          conflicts: conflicts.map((c) => ({ id: c.id, activityId: c.activityId, activityName: c.activity.name, startTime: c.startTime, endTime: c.endTime })),
         });
       }
     }
@@ -142,8 +142,15 @@ export const schedulesService = {
     });
   },
 
-  async updateEntry(id: string, userId: string, timezone: string, input: UpdateScheduleEntryInput) {
+  async updateEntry(id: string, userId: string, timezone: string, rawInput: UpdateScheduleEntryInput) {
     const existing = await schedulesService.getEntryOwned(id, userId);
+
+    // "This occurrence" / "this and future" edits default to today when no explicit
+    // effective date is supplied — the frontend does not currently collect one.
+    const input = {
+      ...rawInput,
+      date: rawInput.date ?? ((rawInput.scope === 'ONLY' || rawInput.scope === 'FUTURE') ? todayInTimezone(timezone) : rawInput.date),
+    };
 
     if (input.activityId) {
       await assertActivityOwnership(input.activityId, userId);
@@ -168,7 +175,7 @@ export const schedulesService = {
       const conflicts = findConflictingEntries(mergedForConflict, others);
       if (conflicts.length > 0) {
         throw AppError.scheduleConflict('This schedule overlaps with existing entries', {
-          conflicts: conflicts.map((c) => ({ id: c.id, activityId: c.activityId, startTime: c.startTime, endTime: c.endTime })),
+          conflicts: conflicts.map((c) => ({ id: c.id, activityId: c.activityId, activityName: c.activity.name, startTime: c.startTime, endTime: c.endTime })),
         });
       }
     }
@@ -272,7 +279,7 @@ export const schedulesService = {
       );
       if (conflicts.length > 0) {
         throw AppError.scheduleConflict('This exception overlaps with the effective schedule for that date', {
-          conflicts: conflicts.map((c) => ({ activityId: c.activityId, startTime: c.startTime, endTime: c.endTime })),
+          conflicts: conflicts.map((c) => ({ id: c.occurrenceKey, activityId: c.activityId, activityName: c.activityName, startTime: c.startTime, endTime: c.endTime })),
         });
       }
     }

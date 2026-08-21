@@ -40,11 +40,20 @@ export const reportsService = {
 
   async categories(userId: string, from: string, to: string) {
     const rows = await reportsRepository.categories(userId, dateStringToDbDate(from), dateStringToDbDate(to));
+    // Historical rows are grouped by the name *snapshot* (immutable), not a category id, since
+    // a category can be renamed after the fact. Best-effort match back to a current category
+    // by name (unique per user) purely to give the frontend a stable id/color to render with.
+    const currentCategories = await prisma.category.findMany({ where: { userId }, select: { id: true, name: true, color: true } });
+    const byName = new Map(currentCategories.map((c) => [c.name, c]));
+
     return rows.map((row) => {
       const completed = Number(row.completed);
       const total = Number(row.total);
+      const current = byName.get(row.category_name);
       return {
+        categoryId: current?.id ?? null,
         categoryName: row.category_name,
+        categoryColor: current?.color ?? null,
         plannedDurationMinutes: Math.round(Number(row.planned_minutes)),
         actualDurationMinutes: Math.round(Number(row.actual_minutes)),
         completed,
@@ -61,7 +70,7 @@ export const reportsService = {
     const activityIds = rows.map((r) => r.activity_id);
     const activities = await prisma.activity.findMany({
       where: { id: { in: activityIds } },
-      select: { id: true, name: true, category: { select: { name: true } } },
+      select: { id: true, name: true, category: { select: { id: true, name: true } } },
     });
     const byId = new Map(activities.map((a) => [a.id, a]));
 
@@ -72,6 +81,7 @@ export const reportsService = {
       return {
         activityId: row.activity_id,
         activityName: activity?.name ?? 'Unknown activity',
+        categoryId: activity?.category?.id ?? null,
         categoryName: activity?.category?.name ?? null,
         plannedOccurrences,
         completedOccurrences,

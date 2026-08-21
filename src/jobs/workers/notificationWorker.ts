@@ -32,6 +32,9 @@ async function processReminder(job: Job<ReminderJobData>): Promise<void> {
     title: 'Activity reminder',
     body: `${activityName} is starting soon`,
     activityLogId: job.data.activityLogId,
+    // Read by the frontend's service worker (worker/index.js) to deep-link a notification
+    // click straight to the relevant item on the dashboard.
+    url: `/dashboard?logId=${job.data.activityLogId}`,
   };
 
   let anySucceeded = false;

@@ -17,10 +17,10 @@ async function setupTodayLog(user: Awaited<ReturnType<typeof registerAndLogin>>)
   await request(app)
     .post('/api/v1/schedules')
     .set(authHeader(user))
-    .send({ activityId: activity.body.data.activity.id, startTime: '00:00', endTime: '23:59', recurrenceType: 'DAILY' })
+    .send({ activityId: activity.body.data.id, startTime: '00:00', endTime: '23:59', recurrence: { type: 'DAILY' } })
     .expect(201);
   const today = await request(app).get('/api/v1/schedules/today').set(authHeader(user)).expect(200);
-  return today.body.data.timeline[0].activityLogId as string;
+  return today.body.data.items[0].activityLog.id as string;
 }
 
 describe('Activity tracking', () => {
@@ -31,18 +31,18 @@ describe('Activity tracking', () => {
     const first = await request(app).post(`/api/v1/activity-logs/${logId}/start`).set(authHeader(user)).expect(200);
     const second = await request(app).post(`/api/v1/activity-logs/${logId}/start`).set(authHeader(user)).expect(200);
 
-    expect(first.body.data.log.status).toBe('IN_PROGRESS');
-    expect(second.body.data.log.status).toBe('IN_PROGRESS');
-    expect(second.body.data.log.actualStart).toBe(first.body.data.log.actualStart);
+    expect(first.body.data.status).toBe('IN_PROGRESS');
+    expect(second.body.data.status).toBe('IN_PROGRESS');
+    expect(second.body.data.actualStart).toBe(first.body.data.actualStart);
   });
 
-  it('rejects completing an activity that was never started', async () => {
+  it('completing an activity that was never started is a one-tap complete: backfills actualStart to now', async () => {
     const user = await registerAndLogin();
     const logId = await setupTodayLog(user);
 
-    const res = await request(app).post(`/api/v1/activity-logs/${logId}/complete`).set(authHeader(user));
-    expect(res.status).toBe(422);
-    expect(res.body.error.code).toBe('INVALID_STATE');
+    const res = await request(app).post(`/api/v1/activity-logs/${logId}/complete`).set(authHeader(user)).expect(200);
+    expect(res.body.data.status).toBe('COMPLETED');
+    expect(res.body.data.actualStart).toBe(res.body.data.actualEnd);
   });
 
   it('completing twice is idempotent', async () => {
@@ -53,8 +53,8 @@ describe('Activity tracking', () => {
     const first = await request(app).post(`/api/v1/activity-logs/${logId}/complete`).set(authHeader(user)).expect(200);
     const second = await request(app).post(`/api/v1/activity-logs/${logId}/complete`).set(authHeader(user)).expect(200);
 
-    expect(first.body.data.log.status).toBe('COMPLETED');
-    expect(second.body.data.log.actualEnd).toBe(first.body.data.log.actualEnd);
+    expect(first.body.data.status).toBe('COMPLETED');
+    expect(second.body.data.actualEnd).toBe(first.body.data.actualEnd);
   });
 
   it('rejects skipping a completed activity', async () => {
@@ -79,10 +79,10 @@ describe('Activity tracking', () => {
     ]);
 
     expect([a.status, b.status]).toEqual([200, 200]);
-    expect(a.body.data.log.status).toBe('COMPLETED');
-    expect(b.body.data.log.status).toBe('COMPLETED');
+    expect(a.body.data.status).toBe('COMPLETED');
+    expect(b.body.data.status).toBe('COMPLETED');
 
     const fetched = await request(app).get(`/api/v1/activity-logs/${logId}`).set(authHeader(user)).expect(200);
-    expect(fetched.body.data.log.status).toBe('COMPLETED');
+    expect(fetched.body.data.status).toBe('COMPLETED');
   });
 });

@@ -63,6 +63,10 @@ export class AppError extends Error {
     return new AppError(422, ErrorCode.INVALID_STATE, message);
   }
 
+  static resourceInUse(message = 'This resource is in use and cannot be permanently deleted'): AppError {
+    return new AppError(409, ErrorCode.RESOURCE_IN_USE, message);
+  }
+
   static rateLimited(message = 'Too many requests'): AppError {
     return new AppError(429, ErrorCode.RATE_LIMITED, message);
   }

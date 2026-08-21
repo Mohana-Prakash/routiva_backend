@@ -7,6 +7,8 @@ export interface RenderedOccurrence {
   activityName: string;
   categoryId: string | null;
   categoryName: string | null;
+  categoryColor: string | null;
+  categoryIcon: string | null;
   startTime: string;
   endTime: string;
   plannedStartUtc: Date;
@@ -18,6 +20,16 @@ export interface RenderedOccurrence {
   exceptionAction: ExceptionAction | null;
   alarmEnabled: boolean;
   alarmOffsetMinutes: number;
+}
+
+interface ActivityForRender {
+  id: string;
+  name: string;
+  categoryId: string | null;
+  category: { id: string; name: string; color: string | null; icon: string | null } | null;
+  alarmEnabled: boolean;
+  alarmOffsetMinutes: number;
+  isActive: boolean;
 }
 
 export interface ScheduleEntryForRender {
@@ -33,15 +45,7 @@ export interface ScheduleEntryForRender {
   isActive: boolean;
   alarmEnabled: boolean | null;
   alarmOffsetMinutes: number | null;
-  activity: {
-    id: string;
-    name: string;
-    categoryId: string | null;
-    category: { id: string; name: string } | null;
-    alarmEnabled: boolean;
-    alarmOffsetMinutes: number;
-    isActive: boolean;
-  };
+  activity: ActivityForRender;
 }
 
 export interface ScheduleExceptionForRender {
@@ -53,12 +57,5 @@ export interface ScheduleExceptionForRender {
   endTime: string | null;
   action: ExceptionAction;
   reason: string | null;
-  activity: {
-    id: string;
-    name: string;
-    categoryId: string | null;
-    category: { id: string; name: string } | null;
-    alarmEnabled: boolean;
-    alarmOffsetMinutes: number;
-  };
+  activity: Omit<ActivityForRender, 'isActive'>;
 }

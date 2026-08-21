@@ -52,7 +52,7 @@ async function issueTokens(userId: string, meta: RequestMeta, familyId: string =
 }
 
 export const authService = {
-  async register(input: RegisterInput) {
+  async register(input: RegisterInput, meta: RequestMeta) {
     const existing = await authRepository.findUserByEmail(input.email);
     if (existing) {
       // Registration intentionally reveals duplicate emails: standard UX tradeoff, distinct
@@ -70,7 +70,12 @@ export const authService = {
 
     await authRepository.writeAuditLog({ userId: user.id, action: 'USER_REGISTERED' });
 
-    return toPublicUser(user);
+    // Registration also establishes a session (auto-login): the frontend's cookie-session
+    // architecture expects to be authenticated immediately after a successful register.
+    const tokens = await issueTokens(user.id, meta);
+    await authRepository.touchLastLogin(user.id);
+
+    return { user: toPublicUser(user), tokens };
   },
 
   async login(input: LoginInput, meta: RequestMeta) {

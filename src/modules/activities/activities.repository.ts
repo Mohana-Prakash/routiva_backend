@@ -45,12 +45,8 @@ export const activitiesRepository = {
     });
   },
 
-  archive(id: string) {
-    return prisma.activity.update({
-      where: { id },
-      data: { isActive: false, archivedAt: new Date() },
-      include: { category: true },
-    });
+  remove(id: string) {
+    return prisma.activity.delete({ where: { id } });
   },
 
   hasActiveSchedules(id: string) {

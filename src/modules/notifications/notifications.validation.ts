@@ -22,7 +22,9 @@ export const unsubscribeSchema = z
 export const updatePreferencesSchema = z
   .object({
     pushEnabled: z.boolean().optional(),
-    defaultAlarmOffset: z.number().int().min(0).max(180).optional(),
+    // Wire field name is `defaultAlarmOffsetMinutes` (types/notification.ts); mapped to our
+    // internal `defaultAlarmOffset` column name.
+    defaultAlarmOffsetMinutes: z.number().int().min(0).max(180).optional(),
     quietHoursEnabled: z.boolean().optional(),
     quietHoursStart: z
       .string()
@@ -39,7 +41,14 @@ export const updatePreferencesSchema = z
   .refine((v) => Object.keys(v).length > 0, 'At least one field must be provided')
   .refine((v) => !v.quietHoursEnabled || (v.quietHoursStart !== undefined && v.quietHoursEnd !== undefined), {
     message: 'quietHoursStart and quietHoursEnd are required when enabling quiet hours',
-  });
+  })
+  .transform((v) => ({
+    pushEnabled: v.pushEnabled,
+    defaultAlarmOffset: v.defaultAlarmOffsetMinutes,
+    quietHoursEnabled: v.quietHoursEnabled,
+    quietHoursStart: v.quietHoursStart,
+    quietHoursEnd: v.quietHoursEnd,
+  }));
 
 export type SubscribeInput = z.infer<typeof subscribeSchema>;
 export type UnsubscribeInput = z.infer<typeof unsubscribeSchema>;

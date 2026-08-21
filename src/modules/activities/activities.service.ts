@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { AppError } from '../../common/errors/AppError';
 import { categoriesRepository } from '../categories/categories.repository';
 import { activitiesRepository } from './activities.repository';
@@ -33,7 +34,7 @@ export const activitiesService = {
   async update(id: string, userId: string, input: UpdateActivityInput) {
     const existing = await activitiesService.getOwned(id, userId);
     if (!existing.isActive && input.isActive !== true) {
-      throw AppError.invalidState('Cannot modify an archived activity');
+      throw AppError.invalidState('Cannot modify an inactive activity');
     }
     if (input.categoryId !== undefined) {
       await assertCategoryOwnership(input.categoryId, userId);
@@ -41,9 +42,22 @@ export const activitiesService = {
     return activitiesRepository.update(id, input);
   },
 
-  /** Archiving never deletes the row: historical activity_logs must keep referencing it. */
-  async archive(id: string, userId: string) {
+  /**
+   * Permanently deletes the row. Blocked at the database level (FK Restrict) whenever any
+   * schedule entry, schedule exception, or historical activity_log still references it —
+   * that's surfaced as a friendly error rather than silently destroying tracked history.
+   */
+  async remove(id: string, userId: string) {
     await activitiesService.getOwned(id, userId);
-    return activitiesRepository.archive(id);
+    try {
+      await activitiesRepository.remove(id);
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2003') {
+        throw AppError.resourceInUse(
+          'This activity has schedule or tracking history and cannot be permanently deleted. Deactivate it instead.',
+        );
+      }
+      throw err;
+    }
   },
 };

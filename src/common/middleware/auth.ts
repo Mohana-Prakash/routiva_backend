@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/AppError';
 import { verifyAccessToken } from '../../modules/auth/token.util';
 import { prisma } from '../../db/prisma';
+import { env } from '../../config/env';
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -13,18 +14,24 @@ declare global {
   }
 }
 
-function extractBearerToken(req: Request): string | null {
+/**
+ * Supports two client architectures: an Authorization header (API/mobile clients that
+ * manage the token themselves) or an httpOnly access-token cookie (browser clients using
+ * a pure cookie-session model, which never touch the token in JS). Header takes priority.
+ */
+function extractAccessToken(req: Request): string | null {
   const header = req.headers.authorization;
   if (header && header.startsWith('Bearer ')) {
     return header.slice('Bearer '.length).trim();
   }
-  return null;
+  const cookieToken = req.cookies?.[env.ACCESS_COOKIE_NAME] as string | undefined;
+  return cookieToken ?? null;
 }
 
 export function requireAuth() {
   return async (req: Request, _res: Response, next: NextFunction): Promise<void> => {
     try {
-      const token = extractBearerToken(req);
+      const token = extractAccessToken(req);
       if (!token) {
         throw AppError.authRequired();
       }

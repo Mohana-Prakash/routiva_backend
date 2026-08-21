@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { AppError } from '../../common/errors/AppError';
 import { sendCreated, sendSuccess } from '../../common/utils/response';
 import { authService } from './auth.service';
-import { setRefreshCookie, clearRefreshCookie } from './cookie.util';
+import { setRefreshCookie, clearRefreshCookie, setAccessCookie, clearAccessCookie } from './cookie.util';
 import { env } from '../../config/env';
 import type { ForgotPasswordInput, LoginInput, RegisterInput, ResetPasswordInput } from './auth.validation';
 
@@ -15,13 +15,20 @@ function requestMeta(req: Request) {
 
 export const authController = {
   async register(req: Request, res: Response) {
-    const user = await authService.register(req.body as RegisterInput);
-    sendCreated(res, { user });
+    const { user, tokens } = await authService.register(req.body as RegisterInput, requestMeta(req));
+    setRefreshCookie(res, tokens.refreshToken, tokens.refreshTokenExpiresAt);
+    setAccessCookie(res, tokens.accessToken);
+    sendCreated(res, {
+      user,
+      accessToken: tokens.accessToken,
+      accessTokenExpiresInMinutes: env.JWT_ACCESS_TTL_MINUTES,
+    });
   },
 
   async login(req: Request, res: Response) {
     const { user, tokens } = await authService.login(req.body as LoginInput, requestMeta(req));
     setRefreshCookie(res, tokens.refreshToken, tokens.refreshTokenExpiresAt);
+    setAccessCookie(res, tokens.accessToken);
     sendSuccess(res, {
       user,
       accessToken: tokens.accessToken,
@@ -36,6 +43,7 @@ export const authController = {
     }
     const { user, tokens } = await authService.refresh(refreshToken, requestMeta(req));
     setRefreshCookie(res, tokens.refreshToken, tokens.refreshTokenExpiresAt);
+    setAccessCookie(res, tokens.accessToken);
     sendSuccess(res, {
       user,
       accessToken: tokens.accessToken,
@@ -47,12 +55,14 @@ export const authController = {
     const refreshToken = req.cookies?.[env.REFRESH_COOKIE_NAME] as string | undefined;
     await authService.logout(refreshToken);
     clearRefreshCookie(res);
+    clearAccessCookie(res);
     sendSuccess(res, { loggedOut: true });
   },
 
   async logoutAll(req: Request, res: Response) {
     await authService.logoutAll(req.userId as string);
     clearRefreshCookie(res);
+    clearAccessCookie(res);
     sendSuccess(res, { loggedOut: true });
   },
 
@@ -70,6 +80,6 @@ export const authController = {
 
   async me(req: Request, res: Response) {
     const user = await authService.me(req.userId as string);
-    sendSuccess(res, { user });
+    sendSuccess(res, user);
   },
 };

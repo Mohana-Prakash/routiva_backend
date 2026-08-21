@@ -25,8 +25,8 @@ export const categoriesRepository = {
     return prisma.category.update({ where: { id }, data });
   },
 
-  deactivate(id: string) {
-    return prisma.category.update({ where: { id }, data: { isActive: false } });
+  remove(id: string) {
+    return prisma.category.delete({ where: { id } });
   },
 
   countActivitiesForCategory(id: string) {

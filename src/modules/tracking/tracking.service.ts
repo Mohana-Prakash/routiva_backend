@@ -54,11 +54,14 @@ export const trackingService = {
   },
 
   async complete(id: string, userId: string) {
-    await trackingService.getOwned(id, userId);
+    const log = await trackingService.getOwned(id, userId);
 
     const now = new Date();
-    const result = await trackingRepository.transitionStatus(id, userId, [LogStatus.IN_PROGRESS], {
+    const result = await trackingRepository.transitionStatus(id, userId, [LogStatus.IN_PROGRESS, LogStatus.PLANNED], {
       status: LogStatus.COMPLETED,
+      // Quick one-tap completion: a PLANNED log has no actualStart yet, so back-fill it to
+      // now (yielding a 0-minute actual duration) rather than requiring Start first.
+      actualStart: log.actualStart ?? now,
       actualEnd: now,
       completedAt: now,
     });
@@ -67,9 +70,6 @@ export const trackingService = {
       const current = await trackingService.getOwned(id, userId);
       if (current.status === LogStatus.COMPLETED) {
         return current;
-      }
-      if (current.status === LogStatus.PLANNED) {
-        throw AppError.invalidState('Activity must be started before it can be completed');
       }
       throw AppError.invalidState(`Cannot complete an activity log with status ${current.status}`);
     }

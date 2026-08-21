@@ -34,9 +34,18 @@ export const categoriesService = {
     return categoriesRepository.update(id, input);
   },
 
-  /** Categories are never hard-deleted: activities and historical logs may still reference them. */
-  async deactivate(id: string, userId: string) {
+  /**
+   * Permanently deletes the row. The activities->category FK is SetNull rather than
+   * Restrict (an activity can outlive its category), so unlike activity deletion this has
+   * to be guarded explicitly: any category still assigned to an activity is blocked with a
+   * friendly error instead of silently orphaning those activities' categoryId.
+   */
+  async remove(id: string, userId: string) {
     await categoriesService.getOwned(id, userId);
-    return categoriesRepository.deactivate(id);
+    const activityCount = await categoriesRepository.countActivitiesForCategory(id);
+    if (activityCount > 0) {
+      throw AppError.resourceInUse('This category has activities using it and cannot be permanently deleted. Deactivate it instead.');
+    }
+    return categoriesRepository.remove(id);
   },
 };

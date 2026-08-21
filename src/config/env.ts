@@ -16,6 +16,8 @@ const envSchema = z.object({
   REFRESH_COOKIE_SECURE: z.coerce.boolean().default(false),
   REFRESH_COOKIE_SAMESITE: z.enum(['lax', 'strict', 'none']).default('lax'),
 
+  ACCESS_COOKIE_NAME: z.string().default('myday_access'),
+
   CORS_ALLOWED_ORIGINS: z.string().default(''),
 
   VAPID_PUBLIC_KEY: z.string().optional().default(''),
