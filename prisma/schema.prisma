@@ -1,0 +1,331 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum RecurrenceType {
+  DAILY
+  WEEKDAYS
+  ONE_TIME
+}
+
+enum ExceptionAction {
+  MOVE
+  SKIP
+  ADD
+  REPLACE
+}
+
+enum LogStatus {
+  PLANNED
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+  CANCELLED
+  MISSED
+  ADJUSTED
+}
+
+enum NotificationJobStatus {
+  SCHEDULED
+  SENT
+  FAILED
+  CANCELLED
+}
+
+// ---------------------------------------------------------------------------
+// Users & Auth
+// ---------------------------------------------------------------------------
+
+model User {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  passwordHash String        @map("password_hash")
+  timezone     String        @default("UTC")
+  status       AccountStatus @default(ACTIVE)
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  lastLoginAt  DateTime?     @map("last_login_at")
+
+  refreshSessions      RefreshSession[]
+  passwordResetTokens  PasswordResetToken[]
+  categories           Category[]
+  activities           Activity[]
+  scheduleEntries      ScheduleEntry[]
+  scheduleExceptions   ScheduleException[]
+  activityLogs         ActivityLog[]
+  pushSubscriptions    PushSubscription[]
+  notificationPreference NotificationPreference?
+  notificationJobs     NotificationJob[]
+  auditLogs            AuditLog[]
+
+  @@map("users")
+}
+
+model RefreshSession {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  tokenHash    String    @unique @map("token_hash")
+  familyId     String    @map("family_id")
+  expiresAt    DateTime  @map("expires_at")
+  revokedAt    DateTime? @map("revoked_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastUsedAt   DateTime? @map("last_used_at")
+  userAgent    String?   @map("user_agent")
+  ipAddress    String?   @map("ip_address")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Categories & Activities
+// ---------------------------------------------------------------------------
+
+model Category {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String
+  icon      String?
+  color     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activities Activity[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("categories")
+}
+
+model Activity {
+  id                 String    @id @default(uuid())
+  userId             String    @map("user_id")
+  categoryId         String?   @map("category_id")
+  name               String
+  description        String?
+  defaultDurationMin Int?      @map("default_duration_minutes")
+  alarmEnabled       Boolean   @default(false) @map("alarm_enabled")
+  alarmOffsetMinutes Int       @default(5) @map("alarm_offset_minutes")
+  isActive           Boolean   @default(true) @map("is_active")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  archivedAt         DateTime? @map("archived_at")
+
+  user            User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category        Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  scheduleEntries ScheduleEntry[]
+  exceptions      ScheduleException[]
+  logs            ActivityLog[]
+
+  @@index([userId])
+  @@index([categoryId])
+  @@map("activities")
+}
+
+// ---------------------------------------------------------------------------
+// Schedule engine
+// ---------------------------------------------------------------------------
+
+model ScheduleEntry {
+  id             String         @id @default(uuid())
+  userId         String         @map("user_id")
+  activityId     String         @map("activity_id")
+  startTime      String         @map("start_time") // "HH:mm"
+  endTime        String         @map("end_time") // "HH:mm"
+  recurrenceType RecurrenceType @map("recurrence_type")
+  daysOfWeek     Int[]          @map("days_of_week") // 0=Sunday..6=Saturday, used for WEEKDAYS
+  oneTimeDate    DateTime?      @map("one_time_date") @db.Date
+  effectiveFrom  DateTime       @default(now()) @map("effective_from") @db.Date
+  effectiveUntil DateTime?      @map("effective_until") @db.Date
+  isActive       Boolean        @default(true) @map("is_active")
+  alarmEnabled   Boolean?       @map("alarm_enabled")
+  alarmOffsetMinutes Int?       @map("alarm_offset_minutes")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity   Activity            @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  exceptions ScheduleException[]
+  logs       ActivityLog[]
+
+  @@index([userId])
+  @@index([activityId])
+  @@map("schedule_entries")
+}
+
+model ScheduleException {
+  id                  String          @id @default(uuid())
+  userId              String          @map("user_id")
+  sourceScheduleEntryId String?       @map("source_schedule_entry_id")
+  activityId          String          @map("activity_id")
+  date                DateTime        @db.Date
+  startTime           String?         @map("start_time") // "HH:mm", null for SKIP
+  endTime             String?         @map("end_time")
+  action              ExceptionAction
+  reason              String?
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+
+  user                User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceScheduleEntry ScheduleEntry? @relation(fields: [sourceScheduleEntryId], references: [id], onDelete: SetNull)
+  activity            Activity       @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  logs                ActivityLog[]
+
+  @@index([userId, date])
+  @@index([sourceScheduleEntryId])
+  @@map("schedule_exceptions")
+}
+
+// ---------------------------------------------------------------------------
+// Tracking / historical logs
+// ---------------------------------------------------------------------------
+
+model ActivityLog {
+  id                     String    @id @default(uuid())
+  userId                 String    @map("user_id")
+  activityId             String    @map("activity_id")
+  scheduleEntryId        String?   @map("schedule_entry_id")
+  exceptionId            String?   @map("exception_id")
+  activityDate           DateTime  @map("activity_date") @db.Date
+  plannedStart           DateTime? @map("planned_start")
+  plannedEnd             DateTime? @map("planned_end")
+  actualStart            DateTime? @map("actual_start")
+  actualEnd              DateTime? @map("actual_end")
+  status                 LogStatus @default(PLANNED)
+  notes                  String?
+  activityNameSnapshot   String    @map("activity_name_snapshot")
+  categoryNameSnapshot   String?   @map("category_name_snapshot")
+  occurrenceKey          String    @map("occurrence_key")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  completedAt            DateTime? @map("completed_at")
+
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activity       Activity        @relation(fields: [activityId], references: [id], onDelete: Restrict)
+  scheduleEntry  ScheduleEntry?  @relation(fields: [scheduleEntryId], references: [id], onDelete: SetNull)
+  exception      ScheduleException? @relation(fields: [exceptionId], references: [id], onDelete: SetNull)
+  notificationJobs NotificationJob[]
+
+  @@unique([userId, occurrenceKey])
+  @@index([userId, activityDate])
+  @@index([userId, status])
+  @@index([activityId])
+  @@map("activity_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+model PushSubscription {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}
+
+model NotificationPreference {
+  userId              String   @id @map("user_id")
+  pushEnabled         Boolean  @default(true) @map("push_enabled")
+  defaultAlarmOffset  Int      @default(5) @map("default_alarm_offset")
+  quietHoursEnabled   Boolean  @default(false) @map("quiet_hours_enabled")
+  quietHoursStart     String?  @map("quiet_hours_start") // "HH:mm"
+  quietHoursEnd       String?  @map("quiet_hours_end") // "HH:mm"
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+model NotificationJob {
+  id            String                @id @default(uuid())
+  userId        String                @map("user_id")
+  activityLogId String?               @map("activity_log_id")
+  jobKey        String                @unique @map("job_key")
+  scheduledAt   DateTime              @map("scheduled_at")
+  sentAt        DateTime?             @map("sent_at")
+  status        NotificationJobStatus @default(SCHEDULED)
+  failureReason String?               @map("failure_reason")
+  attempts      Int                   @default(0)
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activityLog ActivityLog? @relation(fields: [activityLogId], references: [id], onDelete: SetNull)
+
+  @@index([scheduledAt, status])
+  @@index([userId])
+  @@map("notification_jobs")
+}
+
+// ---------------------------------------------------------------------------
+// Audit
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  action    String
+  entity    String?
+  entityId  String?  @map("entity_id")
+  metadata  Json?
+  ipAddress String?  @map("ip_address")
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

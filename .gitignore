@@ -1,0 +1,9 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.local
+# .env.test intentionally tracked: no real secrets, just fixture values the test suite needs
+*.log
+npm-debug.log*
+.DS_Store
