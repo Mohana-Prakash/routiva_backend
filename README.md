@@ -1,4 +1,4 @@
-# My Day Tracker — Backend
+# Routiva — Backend
 
 Production-grade REST API for a multi-user personal schedule, activity tracking, reminders, and
 analytics platform. Built to satisfy the specs in [`backend-requirements/`](./backend-requirements).
@@ -51,7 +51,7 @@ around `GET /schedules/date/:date` with the date resolved server-side from the u
   logs; it only prunes not-yet-acted-upon `PLANNED` placeholders so they regenerate from the new
   definition on next render.
 - **Tracking materialization**: `GET /schedules/date/:date` (and `/schedules/today`) both render
-  the effective schedule *and* idempotently create `PLANNED` `activity_logs` rows for that single
+  the effective schedule _and_ idempotently create `PLANNED` `activity_logs` rows for that single
   date, returning each occurrence's `activityLogId` so the frontend can immediately act on it via
   `POST /activity-logs/:id/start|complete|skip`. A background worker (`schedule-processing` queue,
   every 15 minutes) performs the same materialization for every active user's "yesterday" and

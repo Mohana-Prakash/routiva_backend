@@ -66,7 +66,7 @@ function op(summary: string, opts: { auth?: boolean; body?: Record<string, unkno
 export const openApiDocument = {
   openapi: '3.0.3',
   info: {
-    title: 'My Day Tracker API',
+    title: 'Routiva API',
     version: '1.0.0',
     description:
       'Personal schedule, activity tracking, reminders, and analytics platform. All endpoints are versioned under /api/v1.',
