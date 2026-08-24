@@ -1,11 +1,23 @@
 import { Response } from 'express';
-import { env } from '../../config/env';
+import { env, isProduction } from '../../config/env';
+
+/**
+ * The frontend and backend are always deployed on different origins (e.g. a Netlify
+ * static host and a Render API host), so auth cookies are inherently cross-site in
+ * production. Browsers only send a cookie cross-site when it's SameSite=None, and
+ * SameSite=None is rejected outright unless Secure is also set — so production can't
+ * rely on REFRESH_COOKIE_SECURE/REFRESH_COOKIE_SAMESITE being configured correctly on
+ * the host; getting either wrong silently breaks every session. Dev/test still honor
+ * the env vars since localhost typically isn't served over HTTPS.
+ */
+const cookieSecurity = isProduction
+  ? { secure: true, sameSite: 'none' as const }
+  : { secure: env.REFRESH_COOKIE_SECURE, sameSite: env.REFRESH_COOKIE_SAMESITE };
 
 export function setRefreshCookie(res: Response, token: string, expiresAt: Date): void {
   res.cookie(env.REFRESH_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: env.REFRESH_COOKIE_SECURE,
-    sameSite: env.REFRESH_COOKIE_SAMESITE,
+    ...cookieSecurity,
     domain: env.REFRESH_COOKIE_DOMAIN || undefined,
     path: '/api/v1/auth',
     expires: expiresAt,
@@ -15,8 +27,7 @@ export function setRefreshCookie(res: Response, token: string, expiresAt: Date):
 export function clearRefreshCookie(res: Response): void {
   res.clearCookie(env.REFRESH_COOKIE_NAME, {
     httpOnly: true,
-    secure: env.REFRESH_COOKIE_SECURE,
-    sameSite: env.REFRESH_COOKIE_SAMESITE,
+    ...cookieSecurity,
     domain: env.REFRESH_COOKIE_DOMAIN || undefined,
     path: '/api/v1/auth',
   });
@@ -32,8 +43,7 @@ export function clearRefreshCookie(res: Response): void {
 export function setAccessCookie(res: Response, token: string): void {
   res.cookie(env.ACCESS_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: env.REFRESH_COOKIE_SECURE,
-    sameSite: env.REFRESH_COOKIE_SAMESITE,
+    ...cookieSecurity,
     domain: env.REFRESH_COOKIE_DOMAIN || undefined,
     path: '/',
     maxAge: env.JWT_ACCESS_TTL_MINUTES * 60 * 1000,
@@ -43,8 +53,7 @@ export function setAccessCookie(res: Response, token: string): void {
 export function clearAccessCookie(res: Response): void {
   res.clearCookie(env.ACCESS_COOKIE_NAME, {
     httpOnly: true,
-    secure: env.REFRESH_COOKIE_SECURE,
-    sameSite: env.REFRESH_COOKIE_SAMESITE,
+    ...cookieSecurity,
     domain: env.REFRESH_COOKIE_DOMAIN || undefined,
     path: '/',
   });
