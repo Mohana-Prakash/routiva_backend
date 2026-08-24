@@ -38,6 +38,7 @@ export function createApp(): Express {
   app.use(requestIdMiddleware);
   app.use(httpLogger);
 
+  app.get('/healthz', (_req, res) => res.status(200).json({ success: true, data: { status: 'live' } }));
   app.use('/health', healthRouter);
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
   app.get('/docs.json', (_req, res) => res.json(openApiDocument));
