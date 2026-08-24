@@ -14,7 +14,11 @@ export const qstashController = {
   async callback(req: Request, res: Response): Promise<void> {
     const signature = req.headers['upstash-signature'] as string | undefined;
     const rawBody = req.rawBody?.toString('utf8') ?? '';
-    const url = `${getApiBaseUrl() ?? ''}/notifications/qstash/callback`;
+    // QStash signs the exact URL it was told to deliver to, so verification must check against
+    // the request as it actually arrived — not a value reconstructed from API_BASE_URL, which
+    // can silently drift from reality (e.g. unset on the deployed host) and would then reject
+    // every real delivery. `trust proxy` (app.ts) makes req.protocol/host proxy-aware.
+    const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
 
     const valid = await verifyQStashSignature({ signature, body: rawBody, url });
     if (!valid) {

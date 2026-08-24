@@ -1,11 +1,31 @@
 import request from 'supertest';
+import type { Server } from 'http';
 import { createHash, createHmac } from 'crypto';
 import { app } from '../testUtils/app';
 import { registerAndLogin, authHeader } from '../testUtils/auth';
 
 const CURRENT_KEY = 'test-current-signing-key-fixture';
 const NEXT_KEY = 'test-next-signing-key-fixture';
-const CALLBACK_URL = 'http://localhost:4001/api/v1/notifications/qstash/callback';
+
+// The callback verifies against the URL as Express actually sees the request (req.protocol +
+// req.get('host') + req.originalUrl — see qstash.controller.ts), not a configured constant, so
+// tests bind a real ephemeral server and sign against its real address rather than a guessed
+// one. All requests below go through `server` (not `app`) so they land on that same address.
+let server: Server;
+let callbackUrl: string;
+
+beforeAll((done) => {
+  server = app.listen(0, () => {
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    callbackUrl = `http://127.0.0.1:${port}/api/v1/notifications/qstash/callback`;
+    done();
+  });
+});
+
+afterAll((done) => {
+  server.close(done);
+});
 
 function bodyHash(body: string): string {
   return createHash('sha256').update(body).digest('base64url');
@@ -23,10 +43,10 @@ function base64url(input: object | string): string {
  * body))`. `jose` (the library the SDK itself uses) is ESM-only and doesn't load under this
  * project's CommonJS jest config, so this reimplements just the HS256 signing this test needs.
  */
-function signFor(key: string, body: string, url = CALLBACK_URL): string {
+function signFor(key: string, body: string, url?: string): string {
   const header = base64url({ alg: 'HS256', typ: 'JWT' });
   const now = Math.floor(Date.now() / 1000);
-  const payload = base64url({ iss: 'Upstash', sub: url, body: bodyHash(body), iat: now, exp: now + 300 });
+  const payload = base64url({ iss: 'Upstash', sub: url ?? callbackUrl, body: bodyHash(body), iat: now, exp: now + 300 });
   const signingInput = `${header}.${payload}`;
   const signature = createHmac('sha256', key).update(signingInput).digest('base64url');
   return `${signingInput}.${signature}`;
@@ -37,7 +57,7 @@ describe('QStash callback', () => {
     const body = JSON.stringify({ type: 'test', note: 'hello' });
     const signature = signFor(CURRENT_KEY, body);
 
-    const res = await request(app)
+    const res = await request(server)
       .post('/api/v1/notifications/qstash/callback')
       .set('Content-Type', 'application/json')
       .set('Upstash-Signature', signature)
@@ -53,7 +73,7 @@ describe('QStash callback', () => {
     const body = JSON.stringify({ type: 'test' });
     const signature = signFor(NEXT_KEY, body);
 
-    const res = await request(app)
+    const res = await request(server)
       .post('/api/v1/notifications/qstash/callback')
       .set('Content-Type', 'application/json')
       .set('Upstash-Signature', signature)
@@ -63,7 +83,7 @@ describe('QStash callback', () => {
   });
 
   it('rejects a request with no signature header at all', async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post('/api/v1/notifications/qstash/callback')
       .set('Content-Type', 'application/json')
       .send(JSON.stringify({ type: 'test' }));
@@ -75,7 +95,7 @@ describe('QStash callback', () => {
     const body = JSON.stringify({ type: 'test' });
     const signature = signFor('not-the-real-signing-key', body);
 
-    const res = await request(app)
+    const res = await request(server)
       .post('/api/v1/notifications/qstash/callback')
       .set('Content-Type', 'application/json')
       .set('Upstash-Signature', signature)
@@ -89,7 +109,7 @@ describe('QStash callback', () => {
     const signature = signFor(CURRENT_KEY, signedBody);
     const tamperedBody = JSON.stringify({ type: 'test', amount: 999 });
 
-    const res = await request(app)
+    const res = await request(server)
       .post('/api/v1/notifications/qstash/callback')
       .set('Content-Type', 'application/json')
       .set('Upstash-Signature', signature)
@@ -100,9 +120,9 @@ describe('QStash callback', () => {
 
   it('rejects a signature issued for a different URL', async () => {
     const body = JSON.stringify({ type: 'test' });
-    const signature = signFor(CURRENT_KEY, body, 'http://localhost:4001/api/v1/some-other-endpoint');
+    const signature = signFor(CURRENT_KEY, body, `${callbackUrl}-wrong-path`);
 
-    const res = await request(app)
+    const res = await request(server)
       .post('/api/v1/notifications/qstash/callback')
       .set('Content-Type', 'application/json')
       .set('Upstash-Signature', signature)
@@ -115,14 +135,14 @@ describe('QStash callback', () => {
     const body = JSON.stringify({ type: 'test' });
     const signature = signFor(CURRENT_KEY, body);
 
-    const first = await request(app)
+    const first = await request(server)
       .post('/api/v1/notifications/qstash/callback')
       .set('Content-Type', 'application/json')
       .set('Upstash-Signature', signature)
       .set('Upstash-Message-Id', 'msg-dup')
       .set('Upstash-Retried', '0')
       .send(body);
-    const second = await request(app)
+    const second = await request(server)
       .post('/api/v1/notifications/qstash/callback')
       .set('Content-Type', 'application/json')
       .set('Upstash-Signature', signature)
@@ -137,13 +157,13 @@ describe('QStash callback', () => {
 
 describe('QStash test-trigger', () => {
   it('requires authentication', async () => {
-    const res = await request(app).post('/api/v1/notifications/qstash/test-trigger').send({});
+    const res = await request(server).post('/api/v1/notifications/qstash/test-trigger').send({});
     expect(res.status).toBe(401);
   });
 
   it('refuses to run without a publishable QSTASH_TOKEN, without leaking whether the token is set', async () => {
     const user = await registerAndLogin();
-    const res = await request(app).post('/api/v1/notifications/qstash/test-trigger').set(authHeader(user)).send({});
+    const res = await request(server).post('/api/v1/notifications/qstash/test-trigger').set(authHeader(user)).send({});
     // This test suite's fixture env has no real QSTASH_TOKEN, so publishing must be refused
     // cleanly (400) rather than attempting a real network call or crashing.
     expect(res.status).toBe(400);
