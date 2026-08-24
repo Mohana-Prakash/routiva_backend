@@ -14,7 +14,7 @@
     "declaration": false,
     "sourceMap": true,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     },
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true
