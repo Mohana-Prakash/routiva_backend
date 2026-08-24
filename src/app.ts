@@ -12,6 +12,17 @@ import { healthRouter } from './routes/health.routes';
 import { apiRouter } from './routes';
 import { openApiDocument } from './docs/openapi';
 
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      /** Exact request body bytes, captured before JSON parsing — QStash's signature is
+       *  computed over the raw body, so verification needs this rather than the parsed object. */
+      rawBody?: Buffer;
+    }
+  }
+}
+
 export function createApp(): Express {
   const app = express();
 
@@ -32,7 +43,14 @@ export function createApp(): Express {
     }),
   );
   app.use(compression());
-  app.use(express.json({ limit: '100kb' }));
+  app.use(
+    express.json({
+      limit: '100kb',
+      verify: (req, _res, buf) => {
+        (req as express.Request).rawBody = buf;
+      },
+    }),
+  );
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));
   app.use(cookieParser());
   app.use(requestIdMiddleware);

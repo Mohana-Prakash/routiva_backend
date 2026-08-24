@@ -6,6 +6,7 @@ import { activitiesRouter } from '../modules/activities/activities.routes';
 import { schedulesRouter } from '../modules/schedules/schedules.routes';
 import { trackingRouter } from '../modules/tracking/tracking.routes';
 import { notificationsRouter } from '../modules/notifications/notifications.routes';
+import { qstashRouter } from '../modules/notifications/qstash.routes';
 import { reportsRouter } from '../modules/reports/reports.routes';
 import { generalRateLimiter } from '../common/middleware/rateLimit';
 
@@ -19,5 +20,11 @@ apiRouter.use('/categories', categoriesRouter);
 apiRouter.use('/activities', activitiesRouter);
 apiRouter.use('/schedules', schedulesRouter);
 apiRouter.use('/activity-logs', trackingRouter);
+// More specific mount first: /notifications/qstash/* must not fall through into
+// notificationsRouter's router-level requireAuth() — QStash calls these with a signature,
+// not a user JWT. Express matches mounted routers in registration order by path prefix, so
+// the broader `/notifications` mount below would otherwise intercept and 401 every qstash
+// request before it ever reaches qstashRouter.
+apiRouter.use('/notifications/qstash', qstashRouter);
 apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/reports', reportsRouter);

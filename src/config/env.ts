@@ -24,6 +24,17 @@ const envSchema = z.object({
   VAPID_PRIVATE_KEY: z.string().optional().default(''),
   VAPID_SUBJECT: z.string().optional().default('mailto:admin@example.com'),
 
+  // QStash (Upstash) - scheduled HTTP callbacks that replace the always-on BullMQ worker.
+  // All optional so the app still boots without them (e.g. before Render env vars are set);
+  // the QStash routes themselves refuse to operate if the signing keys are missing.
+  QSTASH_URL: z.string().optional().default(''),
+  QSTASH_TOKEN: z.string().optional().default(''),
+  QSTASH_CURRENT_SIGNING_KEY: z.string().optional().default(''),
+  QSTASH_NEXT_SIGNING_KEY: z.string().optional().default(''),
+  // Public HTTPS base URL QStash should call back into (e.g. https://routiva.onrender.com).
+  // Only needed to originate new QStash schedules/messages, not to verify inbound ones.
+  API_BASE_URL: z.string().optional().default(''),
+
   RATE_LIMIT_GENERAL_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_GENERAL_MAX: z.coerce.number().int().positive().default(300),
   RATE_LIMIT_AUTH_WINDOW_MS: z.coerce.number().int().positive().default(900_000),
