@@ -45,9 +45,4 @@ export const categoriesController = {
     const category = await categoriesService.update(req.params.id as string, req.userId as string, req.body as UpdateCategoryInput);
     sendSuccess(res, toCategoryDto(category));
   },
-
-  async remove(req: Request, res: Response) {
-    await categoriesService.remove(req.params.id as string, req.userId as string);
-    res.status(204).send();
-  },
 };

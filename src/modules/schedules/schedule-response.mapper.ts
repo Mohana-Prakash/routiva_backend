@@ -46,6 +46,7 @@ export function toDayScheduleResponse(
       exceptionId: occurrence.exceptionId,
       alarmEnabled: occurrence.alarmEnabled,
       alarmOffsetMinutes: occurrence.alarmOffsetMinutes,
+      reminderAt: occurrence.reminderAtUtc ? occurrence.reminderAtUtc.toISOString() : null,
       notes: log.notes,
       activityLog: toActivityLogDto(log),
       hasConflict: conflictKeys.length > 0,
@@ -66,6 +67,7 @@ export function toScheduleEntryDto(entry: ScheduleEntry) {
     activityId: entry.activityId,
     startTime: entry.startTime,
     endTime: entry.endTime,
+    timelessReminderTime: entry.timelessReminderTime,
     recurrence: {
       type: entry.recurrenceType,
       daysOfWeek: entry.recurrenceType === 'WEEKDAYS' ? entry.daysOfWeek : undefined,
@@ -86,6 +88,7 @@ export function toScheduleExceptionDto(exception: ScheduleException) {
     date: dbDateToString(exception.date),
     startTime: exception.startTime,
     endTime: exception.endTime,
+    timelessReminderTime: exception.timelessReminderTime,
     action: exception.action,
     reason: exception.reason,
     createdAt: exception.createdAt.toISOString(),

@@ -9,10 +9,10 @@ export interface RenderedOccurrence {
   categoryName: string | null;
   categoryColor: string | null;
   categoryIcon: string | null;
-  startTime: string;
-  endTime: string;
-  plannedStartUtc: Date;
-  plannedEndUtc: Date;
+  startTime: string | null;
+  endTime: string | null;
+  plannedStartUtc: Date | null;
+  plannedEndUtc: Date | null;
   crossesMidnight: boolean;
   source: 'RECURRING' | 'ONE_TIME' | 'EXCEPTION';
   scheduleEntryId: string | null;
@@ -20,6 +20,8 @@ export interface RenderedOccurrence {
   exceptionAction: ExceptionAction | null;
   alarmEnabled: boolean;
   alarmOffsetMinutes: number;
+  /** Timeless occurrences only: the instant timelessReminderTime resolves to on this date. */
+  reminderAtUtc: Date | null;
 }
 
 interface ActivityForRender {
@@ -35,8 +37,8 @@ interface ActivityForRender {
 export interface ScheduleEntryForRender {
   id: string;
   activityId: string;
-  startTime: string;
-  endTime: string;
+  startTime: string | null;
+  endTime: string | null;
   recurrenceType: RecurrenceType;
   daysOfWeek: number[];
   oneTimeDate: Date | null;
@@ -45,6 +47,7 @@ export interface ScheduleEntryForRender {
   isActive: boolean;
   alarmEnabled: boolean | null;
   alarmOffsetMinutes: number | null;
+  timelessReminderTime: string | null;
   activity: ActivityForRender;
 }
 
@@ -55,6 +58,7 @@ export interface ScheduleExceptionForRender {
   date: Date;
   startTime: string | null;
   endTime: string | null;
+  timelessReminderTime: string | null;
   action: ExceptionAction;
   reason: string | null;
   activity: Omit<ActivityForRender, 'isActive'>;

@@ -25,6 +25,16 @@ function dbDateToDateString(date: Date): string {
   return DateTime.fromJSDate(date, { zone: 'utc' }).toFormat('yyyy-MM-dd');
 }
 
+/**
+ * Merges a possibly-omitted time field with the existing value for a partial update —
+ * `next` present = new value, omitted = keep existing — except when `timeless` is true, which
+ * always wins and clears to null regardless of what `next` was.
+ */
+function resolveTimeField(next: string | undefined, existing: string | null, timeless: boolean): string | null {
+  if (timeless) return null;
+  return next ?? existing;
+}
+
 function assertNotPast(date: string, timezone: string, message: string): void {
   if (date < todayInTimezone(timezone)) {
     throw AppError.validation(message);
@@ -98,8 +108,8 @@ export const schedulesService = {
     const candidate: ScheduleEntryForRender = {
       id: 'candidate',
       activityId: input.activityId,
-      startTime: input.startTime,
-      endTime: input.endTime,
+      startTime: input.startTime ?? null,
+      endTime: input.endTime ?? null,
       recurrenceType: input.recurrenceType,
       daysOfWeek: input.daysOfWeek ?? [],
       oneTimeDate: input.oneTimeDate ? dateStringToDbDate(input.oneTimeDate) : null,
@@ -108,6 +118,7 @@ export const schedulesService = {
       isActive: true,
       alarmEnabled: input.alarmEnabled ?? null,
       alarmOffsetMinutes: input.alarmOffsetMinutes ?? null,
+      timelessReminderTime: input.timelessReminderTime ?? null,
       activity: {
         id: input.activityId,
         name: '',
@@ -133,6 +144,7 @@ export const schedulesService = {
       activityId: input.activityId,
       startTime: input.startTime,
       endTime: input.endTime,
+      timelessReminderTime: input.timelessReminderTime ?? null,
       recurrenceType: input.recurrenceType,
       daysOfWeek: input.daysOfWeek ?? [],
       oneTimeDate: input.oneTimeDate ? dateStringToDbDate(input.oneTimeDate) : null,
@@ -151,6 +163,7 @@ export const schedulesService = {
       ...rawInput,
       date: rawInput.date ?? ((rawInput.scope === 'ONLY' || rawInput.scope === 'FUTURE') ? todayInTimezone(timezone) : rawInput.date),
     };
+    const timelessOverride = input.timeless === true;
 
     if (input.activityId) {
       await assertActivityOwnership(input.activityId, userId);
@@ -163,8 +176,8 @@ export const schedulesService = {
     if (!input.override && input.scope === 'ALL') {
       const mergedForConflict: ScheduleEntryForRender = {
         ...(existing as unknown as ScheduleEntryForRender),
-        startTime: input.startTime ?? existing.startTime,
-        endTime: input.endTime ?? existing.endTime,
+        startTime: resolveTimeField(input.startTime, existing.startTime, timelessOverride),
+        endTime: resolveTimeField(input.endTime, existing.endTime, timelessOverride),
         recurrenceType: input.recurrenceType ?? existing.recurrenceType,
         daysOfWeek: input.daysOfWeek ?? existing.daysOfWeek,
         oneTimeDate: input.oneTimeDate ? dateStringToDbDate(input.oneTimeDate) : existing.oneTimeDate,
@@ -187,8 +200,10 @@ export const schedulesService = {
       const payload = {
         activityId: input.activityId ?? existing.activityId,
         date: dbDate,
-        startTime: input.startTime ?? null,
-        endTime: input.endTime ?? null,
+        startTime: resolveTimeField(input.startTime, existing.startTime, timelessOverride),
+        endTime: resolveTimeField(input.endTime, existing.endTime, timelessOverride),
+        timelessReminderTime:
+          input.timelessReminderTime !== undefined ? input.timelessReminderTime : existing.timelessReminderTime,
         action: 'REPLACE' as const,
         reason: 'Occurrence-only edit',
       };
@@ -210,8 +225,10 @@ export const schedulesService = {
       await schedulesRepository.updateEntry(id, { effectiveUntil: dateStringToDbDate(dayBefore) });
       const created = await schedulesRepository.createEntry(userId, {
         activityId: input.activityId ?? existing.activityId,
-        startTime: input.startTime ?? existing.startTime,
-        endTime: input.endTime ?? existing.endTime,
+        startTime: resolveTimeField(input.startTime, existing.startTime, timelessOverride),
+        endTime: resolveTimeField(input.endTime, existing.endTime, timelessOverride),
+        timelessReminderTime:
+          input.timelessReminderTime !== undefined ? input.timelessReminderTime : existing.timelessReminderTime,
         recurrenceType: input.recurrenceType ?? existing.recurrenceType,
         daysOfWeek: input.daysOfWeek ?? existing.daysOfWeek,
         oneTimeDate: input.oneTimeDate ? dateStringToDbDate(input.oneTimeDate) : null,
@@ -226,8 +243,9 @@ export const schedulesService = {
     // scope === 'ALL'
     const updated = await schedulesRepository.updateEntry(id, {
       activityId: input.activityId,
-      startTime: input.startTime,
-      endTime: input.endTime,
+      startTime: timelessOverride ? null : input.startTime,
+      endTime: timelessOverride ? null : input.endTime,
+      timelessReminderTime: input.timelessReminderTime,
       recurrenceType: input.recurrenceType,
       daysOfWeek: input.daysOfWeek,
       oneTimeDate: input.oneTimeDate ? dateStringToDbDate(input.oneTimeDate) : undefined,
@@ -265,17 +283,23 @@ export const schedulesService = {
       }
     }
 
-    if (input.action !== 'SKIP' && !input.override) {
+    // A timeless exception (no fixed slot) can never conflict with anything, so conflict
+    // checking only applies when this exception actually has a time.
+    if (input.action !== 'SKIP' && !input.override && input.startTime && input.endTime) {
       const occurrences = await schedulesService.renderDate(userId, input.date, timezone);
       const remaining = occurrences.filter((o) => o.scheduleEntryId !== input.sourceScheduleEntryId);
 
-      const wraps = crossesMidnight(input.startTime as string, input.endTime as string);
+      const wraps = crossesMidnight(input.startTime, input.endTime);
       const endDate = wraps ? DateTime.fromISO(input.date).plus({ days: 1 }).toFormat('yyyy-MM-dd') : input.date;
-      const candidateStartUtc = localTimeToUtc(input.date, input.startTime as string, timezone);
-      const candidateEndUtc = localTimeToUtc(endDate, input.endTime as string, timezone);
+      const candidateStartUtc = localTimeToUtc(input.date, input.startTime, timezone);
+      const candidateEndUtc = localTimeToUtc(endDate, input.endTime, timezone);
 
       const conflicts = remaining.filter(
-        (o) => candidateStartUtc.getTime() < o.plannedEndUtc.getTime() && o.plannedStartUtc.getTime() < candidateEndUtc.getTime(),
+        (o) =>
+          o.plannedStartUtc &&
+          o.plannedEndUtc &&
+          candidateStartUtc.getTime() < o.plannedEndUtc.getTime() &&
+          o.plannedStartUtc.getTime() < candidateEndUtc.getTime(),
       );
       if (conflicts.length > 0) {
         throw AppError.scheduleConflict('This exception overlaps with the effective schedule for that date', {
@@ -289,6 +313,7 @@ export const schedulesService = {
       date: dateStringToDbDate(input.date),
       startTime: input.startTime ?? null,
       endTime: input.endTime ?? null,
+      timelessReminderTime: input.timelessReminderTime ?? null,
       action: input.action,
       reason: input.reason ?? null,
       ...(input.sourceScheduleEntryId ? { sourceScheduleEntryId: input.sourceScheduleEntryId } : {}),
@@ -318,6 +343,8 @@ export const schedulesService = {
     return schedulesRepository.updateException(id, {
       startTime: input.startTime ?? existing.startTime,
       endTime: input.endTime ?? existing.endTime,
+      timelessReminderTime:
+        input.timelessReminderTime !== undefined ? input.timelessReminderTime : existing.timelessReminderTime,
       reason: input.reason !== undefined ? input.reason : existing.reason,
     });
   },

@@ -167,8 +167,8 @@ model ScheduleEntry {
   id             String         @id @default(uuid())
   userId         String         @map("user_id")
   activityId     String         @map("activity_id")
-  startTime      String         @map("start_time") // "HH:mm"
-  endTime        String         @map("end_time") // "HH:mm"
+  startTime      String?        @map("start_time") // "HH:mm"; null (with endTime) means timeless — no fixed slot
+  endTime        String?        @map("end_time") // "HH:mm"; null (with startTime) means timeless — no fixed slot
   recurrenceType RecurrenceType @map("recurrence_type")
   daysOfWeek     Int[]          @map("days_of_week") // 0=Sunday..6=Saturday, used for WEEKDAYS
   oneTimeDate    DateTime?      @map("one_time_date") @db.Date
@@ -177,6 +177,10 @@ model ScheduleEntry {
   isActive       Boolean        @default(true) @map("is_active")
   alarmEnabled   Boolean?       @map("alarm_enabled")
   alarmOffsetMinutes Int?       @map("alarm_offset_minutes")
+  // "HH:mm" — only meaningful when this entry is timeless (startTime/endTime null). A timed
+  // entry's reminder is computed from startTime - alarmOffsetMinutes instead; timeless has no
+  // start to offset from, so it needs an absolute time of day of its own.
+  timelessReminderTime String? @map("timeless_reminder_time")
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
@@ -196,8 +200,10 @@ model ScheduleException {
   sourceScheduleEntryId String?       @map("source_schedule_entry_id")
   activityId          String          @map("activity_id")
   date                DateTime        @db.Date
-  startTime           String?         @map("start_time") // "HH:mm", null for SKIP
-  endTime             String?         @map("end_time")
+  startTime           String?         @map("start_time") // "HH:mm"; null for SKIP, or for a timeless ADD/REPLACE/MOVE
+  endTime             String?         @map("end_time") // same nullability rule as startTime
+  // "HH:mm" — same role as ScheduleEntry.timelessReminderTime, for a timeless one-off exception.
+  timelessReminderTime String?        @map("timeless_reminder_time")
   action              ExceptionAction
   reason              String?
   createdAt           DateTime        @default(now()) @map("created_at")

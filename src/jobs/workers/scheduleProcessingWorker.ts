@@ -8,26 +8,48 @@ import { schedulesService } from '../../modules/schedules/schedules.service';
 import { trackingRepository } from '../../modules/tracking/tracking.repository';
 import { todayInTimezone } from '../../common/utils/time';
 
+function dateStringToDbDate(date: string): Date {
+  return new Date(`${date}T00:00:00.000Z`);
+}
+
 /**
  * Runs periodically (see jobs/scheduler.ts). For every active user: materializes today's
  * (and yesterday's, to catch stragglers whose day just ended) schedule so reminders are
- * queued even if the user never opens the app, then sweeps expired PLANNED logs to MISSED.
- * Workers are restart-safe: all state lives in Postgres/Redis, nothing in process memory.
+ * queued even if the user never opens the app, then sweeps expired logs: PLANNED ones past
+ * their window become MISSED, and IN_PROGRESS ones past their window are auto-completed
+ * (actualEnd backfilled to the planned end, not the sweep time) so nobody has to remember to
+ * tap Complete. Timeless logs (no fixed slot) use a day-boundary rule instead — they expire
+ * once their whole activityDate has passed, since there's no specific end time to compare
+ * against. Workers are restart-safe: all state lives in Postgres/Redis, nothing in process
+ * memory.
  */
 async function reconcileAllUsers(): Promise<void> {
   const users = await prisma.user.findMany({ where: { status: 'ACTIVE' }, select: { id: true, timezone: true } });
+  const now = new Date();
 
   for (const user of users) {
     try {
       const today = todayInTimezone(user.timezone);
       const yesterday = DateTime.fromISO(today).minus({ days: 1 }).toFormat('yyyy-MM-dd');
+      const todayDbDate = dateStringToDbDate(today);
 
       await schedulesService.renderAndMaterializeDate(user.id, yesterday, user.timezone);
       await schedulesService.renderAndMaterializeDate(user.id, today, user.timezone);
 
-      const expired = await trackingRepository.findExpiredPlanned(user.id, new Date());
-      if (expired.length > 0) {
-        await trackingRepository.markMissed(expired.map((l) => l.id));
+      const expiredPlanned = [
+        ...(await trackingRepository.findExpiredPlanned(user.id, now)),
+        ...(await trackingRepository.findExpiredTimelessPlanned(user.id, todayDbDate)),
+      ];
+      if (expiredPlanned.length > 0) {
+        await trackingRepository.markMissed(expiredPlanned.map((l) => l.id));
+      }
+
+      const expiredInProgress = [
+        ...(await trackingRepository.findExpiredInProgress(user.id, now)),
+        ...(await trackingRepository.findExpiredTimelessInProgress(user.id, todayDbDate)),
+      ];
+      if (expiredInProgress.length > 0) {
+        await trackingRepository.autoCompleteExpired(expiredInProgress);
       }
     } catch (err) {
       logger.error({ err, userId: user.id }, 'Schedule reconciliation failed for user');

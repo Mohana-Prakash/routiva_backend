@@ -11,10 +11,20 @@ interface ReminderJobData {
   userId: string;
   activityLogId: string;
   activityName: string;
+  /** pre-reminder = text only, nothing actionable yet. The other two carry `actions`. */
+  kind: 'pre-reminder' | 'timed-actionable' | 'timeless-actionable';
+  /** Action keys the service worker renders as notification buttons (worker/index.js). */
+  actions: ('start' | 'complete' | 'skip' | 'close')[];
 }
 
+const KIND_COPY: Record<ReminderJobData['kind'], (activityName: string) => { title: string; body: string }> = {
+  'pre-reminder': (activityName) => ({ title: 'Coming up', body: `${activityName} starts soon` }),
+  'timed-actionable': (activityName) => ({ title: activityName, body: "It's time — start, complete, or skip." }),
+  'timeless-actionable': (activityName) => ({ title: activityName, body: 'Anytime today — mark it complete or close it out.' }),
+};
+
 async function processReminder(job: Job<ReminderJobData>): Promise<void> {
-  const { notificationJobId, userId, activityName } = job.data;
+  const { notificationJobId, userId, activityName, kind, actions } = job.data;
 
   const notificationJob = await prisma.notificationJob.findUnique({ where: { id: notificationJobId } });
   if (!notificationJob || notificationJob.status !== 'SCHEDULED') {
@@ -28,10 +38,12 @@ async function processReminder(job: Job<ReminderJobData>): Promise<void> {
     return;
   }
 
+  const copy = KIND_COPY[kind](activityName);
   const payload = {
-    title: 'Activity reminder',
-    body: `${activityName} is starting soon`,
+    title: copy.title,
+    body: copy.body,
     activityLogId: job.data.activityLogId,
+    actions: actions ?? [],
     // Read by the frontend's service worker (worker/index.js) to deep-link a notification
     // click straight to the relevant item on the dashboard.
     url: `/dashboard?logId=${job.data.activityLogId}`,

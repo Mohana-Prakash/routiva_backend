@@ -52,4 +52,8 @@ export const activitiesRepository = {
   hasActiveSchedules(id: string) {
     return prisma.scheduleEntry.count({ where: { activityId: id, isActive: true } });
   },
+
+  deactivateAllForCategory(categoryId: string) {
+    return prisma.activity.updateMany({ where: { categoryId, isActive: true }, data: { isActive: false } });
+  },
 };

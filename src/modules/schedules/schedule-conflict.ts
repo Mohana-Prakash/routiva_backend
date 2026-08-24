@@ -54,10 +54,14 @@ export function findConflictingEntries(
   candidate: ScheduleEntryForRender,
   existingEntries: ScheduleEntryForRender[],
 ): ScheduleEntryForRender[] {
+  // Timeless entries (no fixed slot) can never time-conflict with anything.
+  if (!candidate.startTime || !candidate.endTime) return [];
+
   return existingEntries.filter((existing) => {
     if (existing.id === candidate.id) return false;
     if (!existing.isActive) return false;
+    if (!existing.startTime || !existing.endTime) return false;
     if (!patternsCanCoincide(candidate, existing)) return false;
-    return timeRangesOverlap(candidate.startTime, candidate.endTime, existing.startTime, existing.endTime);
+    return timeRangesOverlap(candidate.startTime as string, candidate.endTime as string, existing.startTime, existing.endTime);
   });
 }

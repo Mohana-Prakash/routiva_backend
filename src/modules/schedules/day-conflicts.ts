@@ -12,6 +12,8 @@ export function computeSameDayConflicts(occurrences: RenderedOccurrence[]): Map<
     for (let j = i + 1; j < occurrences.length; j += 1) {
       const a = occurrences[i] as RenderedOccurrence;
       const b = occurrences[j] as RenderedOccurrence;
+      // Timeless occurrences (no fixed slot) can never conflict with anything.
+      if (!a.plannedStartUtc || !a.plannedEndUtc || !b.plannedStartUtc || !b.plannedEndUtc) continue;
       const overlaps = a.plannedStartUtc.getTime() < b.plannedEndUtc.getTime() && b.plannedStartUtc.getTime() < a.plannedEndUtc.getTime();
       if (!overlaps) continue;
 

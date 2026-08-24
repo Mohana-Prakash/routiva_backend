@@ -25,6 +25,7 @@ function makeEntry(overrides: Partial<ScheduleEntryForRender>): ScheduleEntryFor
     isActive: true,
     alarmEnabled: null,
     alarmOffsetMinutes: null,
+    timelessReminderTime: null,
     activity: activity('activity-1', 'Meditation'),
     ...overrides,
   };
@@ -65,8 +66,8 @@ describe('renderEffectiveSchedule', () => {
     const result = renderEffectiveSchedule('2026-03-15', 'UTC', entries, []);
     expect(result).toHaveLength(1);
     expect(result[0]!.crossesMidnight).toBe(true);
-    expect(result[0]!.plannedStartUtc.toISOString()).toBe('2026-03-15T23:30:00.000Z');
-    expect(result[0]!.plannedEndUtc.toISOString()).toBe('2026-03-16T00:30:00.000Z');
+    expect(result[0]!.plannedStartUtc!.toISOString()).toBe('2026-03-15T23:30:00.000Z');
+    expect(result[0]!.plannedEndUtc!.toISOString()).toBe('2026-03-16T00:30:00.000Z');
   });
 
   it('applies a SKIP exception by removing the base occurrence', () => {
@@ -79,6 +80,7 @@ describe('renderEffectiveSchedule', () => {
         date: new Date('2026-03-15T00:00:00.000Z'),
         startTime: null,
         endTime: null,
+        timelessReminderTime: null,
         action: 'SKIP',
         reason: null,
         activity: activity('activity-1', 'Meditation'),
@@ -97,6 +99,7 @@ describe('renderEffectiveSchedule', () => {
         date: new Date('2026-03-15T00:00:00.000Z'),
         startTime: '05:00',
         endTime: '05:30',
+        timelessReminderTime: null,
         action: 'MOVE',
         reason: 'overslept',
         activity: activity('activity-1', 'Meditation'),
@@ -121,6 +124,7 @@ describe('renderEffectiveSchedule', () => {
         date: new Date('2026-03-15T00:00:00.000Z'),
         startTime: '20:00',
         endTime: '22:30',
+        timelessReminderTime: null,
         action: 'ADD',
         reason: null,
         activity: activity('activity-2', 'Play'),

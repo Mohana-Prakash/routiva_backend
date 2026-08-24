@@ -21,4 +21,3 @@ categoriesRouter.patch(
   validate({ params: categoryIdParamSchema, body: updateCategorySchema }),
   asyncHandler(categoriesController.update),
 );
-categoriesRouter.delete('/:id', validate({ params: categoryIdParamSchema }), asyncHandler(categoriesController.remove));

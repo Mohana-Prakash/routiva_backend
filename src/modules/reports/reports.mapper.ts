@@ -18,6 +18,8 @@ interface CategoryDomain {
   actualDurationMinutes: number;
   plannedDurationMinutes: number;
   completionPercentage: number | null;
+  completed: number;
+  total: number;
 }
 
 interface ActivityDomain {
@@ -65,6 +67,8 @@ export function toCategoryReportDto(c: CategoryDomain) {
     plannedMinutes: c.plannedDurationMinutes,
     actualMinutes: c.actualDurationMinutes,
     completionRate: c.completionPercentage ?? 0,
+    completedCount: c.completed,
+    totalCount: c.total,
   };
 }
 

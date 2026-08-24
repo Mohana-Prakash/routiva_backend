@@ -1,4 +1,5 @@
 import { AppError } from '../../common/errors/AppError';
+import { activitiesRepository } from '../activities/activities.repository';
 import { categoriesRepository } from './categories.repository';
 import type { CreateCategoryInput, UpdateCategoryInput } from './categories.validation';
 
@@ -21,6 +22,14 @@ export const categoriesService = {
     return categoriesRepository.create(userId, input);
   },
 
+  /**
+   * Deactivating a category cascades: any activity still active under it is deactivated too,
+   * so nothing is left pointing at a category the user has just turned off. The frontend
+   * warns and confirms with the user before calling this when that cascade would affect
+   * anything (see CategoryList.tsx), but the cascade itself always runs here regardless of
+   * caller, so the invariant (no active activity under an inactive category) can't be
+   * bypassed by calling the API directly.
+   */
   async update(id: string, userId: string, input: UpdateCategoryInput) {
     await categoriesService.getOwned(id, userId);
 
@@ -31,21 +40,10 @@ export const categoriesService = {
       }
     }
 
-    return categoriesRepository.update(id, input);
-  },
-
-  /**
-   * Permanently deletes the row. The activities->category FK is SetNull rather than
-   * Restrict (an activity can outlive its category), so unlike activity deletion this has
-   * to be guarded explicitly: any category still assigned to an activity is blocked with a
-   * friendly error instead of silently orphaning those activities' categoryId.
-   */
-  async remove(id: string, userId: string) {
-    await categoriesService.getOwned(id, userId);
-    const activityCount = await categoriesRepository.countActivitiesForCategory(id);
-    if (activityCount > 0) {
-      throw AppError.resourceInUse('This category has activities using it and cannot be permanently deleted. Deactivate it instead.');
+    const updated = await categoriesRepository.update(id, input);
+    if (input.isActive === false) {
+      await activitiesRepository.deactivateAllForCategory(id);
     }
-    return categoriesRepository.remove(id);
+    return updated;
   },
 };

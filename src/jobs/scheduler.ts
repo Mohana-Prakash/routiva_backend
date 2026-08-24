@@ -9,10 +9,10 @@ export async function registerRepeatableJobs(): Promise<void> {
     {},
     {
       jobId: 'reconcile-all-users-repeatable',
-      repeat: { every: 15 * 60 * 1000 },
+      repeat: { every: 2 * 60 * 1000 },
       removeOnComplete: true,
       removeOnFail: true,
     },
   );
-  logger.info('Registered repeatable schedule-processing job (every 15 minutes)');
+  logger.info('Registered repeatable schedule-processing job (every 2 minutes)');
 }

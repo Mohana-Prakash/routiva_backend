@@ -34,8 +34,12 @@ const recurrenceSchema = z
 export const createScheduleEntrySchema = z
   .object({
     activityId: z.string().uuid(),
-    startTime: timeString,
-    endTime: timeString,
+    // Both present = timed; both null/omitted = timeless (no fixed slot, available all day).
+    startTime: timeString.nullable().optional(),
+    endTime: timeString.nullable().optional(),
+    // Only meaningful when timeless (startTime/endTime omitted) — the absolute time of day to
+    // send the reminder at, since there's no start time to offset a reminder from.
+    timelessReminderTime: timeString.nullable().optional(),
     recurrence: recurrenceSchema,
     effectiveFrom: dateString.optional(),
     alarmEnabled: z.boolean().nullable().optional(),
@@ -44,11 +48,16 @@ export const createScheduleEntrySchema = z
     override: z.boolean().optional(),
   })
   .strict()
-  .refine((v) => v.startTime !== v.endTime, { message: 'startTime and endTime must differ', path: ['endTime'] })
+  .refine((v) => !!v.startTime === !!v.endTime, {
+    message: 'startTime and endTime must both be set, or both omitted for a timeless entry',
+    path: ['endTime'],
+  })
+  .refine((v) => !v.startTime || v.startTime !== v.endTime, { message: 'startTime and endTime must differ', path: ['endTime'] })
   .transform((v) => ({
     activityId: v.activityId,
     startTime: v.startTime,
     endTime: v.endTime,
+    timelessReminderTime: v.timelessReminderTime,
     recurrenceType: v.recurrence.type,
     daysOfWeek: v.recurrence.daysOfWeek,
     oneTimeDate: v.recurrence.date,
@@ -61,8 +70,14 @@ export const createScheduleEntrySchema = z
 export const updateScheduleEntrySchema = z
   .object({
     activityId: z.string().uuid().optional(),
+    // Omitted = unchanged, standard partial-update semantics (either field can be changed
+    // independently). `timeless: true` is the explicit, unambiguous signal to switch to no
+    // fixed slot — it wins over any startTime/endTime also present in the same request.
     startTime: timeString.optional(),
     endTime: timeString.optional(),
+    timeless: z.boolean().optional(),
+    // Omitted = unchanged; `null` explicitly clears it (e.g. switching back off).
+    timelessReminderTime: timeString.nullable().optional(),
     recurrence: recurrenceSchema.optional(),
     alarmEnabled: z.boolean().nullable().optional(),
     alarmOffsetMinutes: z.number().int().min(0).max(180).nullable().optional(),
@@ -75,10 +90,13 @@ export const updateScheduleEntrySchema = z
     override: z.boolean().optional(),
   })
   .strict()
+  .refine((v) => !v.startTime || !v.endTime || v.startTime !== v.endTime, { message: 'startTime and endTime must differ', path: ['endTime'] })
   .transform((v) => ({
     activityId: v.activityId,
     startTime: v.startTime,
     endTime: v.endTime,
+    timeless: v.timeless,
+    timelessReminderTime: v.timelessReminderTime,
     recurrenceType: v.recurrence?.type,
     daysOfWeek: v.recurrence?.daysOfWeek,
     oneTimeDate: v.recurrence?.date,
@@ -119,14 +137,15 @@ export const createExceptionSchema = z
     date: dateString,
     startTime: timeString.optional(),
     endTime: timeString.optional(),
+    timelessReminderTime: timeString.nullable().optional(),
     action: z.enum(['MOVE', 'SKIP', 'ADD', 'REPLACE']),
     reason: z.string().trim().max(500).nullable().optional(),
     resolution: conflictResolutionWire,
     override: z.boolean().optional(),
   })
   .strict()
-  .refine((v) => v.action === 'SKIP' || (!!v.startTime && !!v.endTime), {
-    message: 'startTime and endTime are required unless action is SKIP',
+  .refine((v) => v.action === 'SKIP' || !!v.startTime === !!v.endTime, {
+    message: 'startTime and endTime must both be set, or both omitted for a timeless entry, unless action is SKIP',
     path: ['startTime'],
   })
   .refine((v) => v.action !== 'ADD' || !v.sourceScheduleEntryId, {
@@ -139,6 +158,7 @@ export const updateExceptionSchema = z
   .object({
     startTime: timeString.optional(),
     endTime: timeString.optional(),
+    timelessReminderTime: timeString.nullable().optional(),
     reason: z.string().trim().max(500).nullable().optional(),
     resolution: conflictResolutionWire,
     override: z.boolean().optional(),
