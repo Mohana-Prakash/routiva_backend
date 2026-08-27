@@ -135,8 +135,10 @@ export const createExceptionSchema = z
     sourceScheduleEntryId: z.string().uuid().nullable().optional(),
     activityId: z.string().uuid(),
     date: dateString,
-    startTime: timeString.optional(),
-    endTime: timeString.optional(),
+    // Nullable: an ADD/MOVE/REPLACE exception for a timeless activity sends both explicitly
+    // null, mirroring createScheduleEntrySchema's startTime/endTime (see the refine below).
+    startTime: timeString.nullable().optional(),
+    endTime: timeString.nullable().optional(),
     timelessReminderTime: timeString.nullable().optional(),
     action: z.enum(['MOVE', 'SKIP', 'ADD', 'REPLACE']),
     reason: z.string().trim().max(500).nullable().optional(),

@@ -5,7 +5,6 @@ export const createActivitySchema = z
     name: z.string().trim().min(1).max(100),
     categoryId: z.string().uuid().nullable().optional(),
     description: z.string().trim().max(1000).nullable().optional(),
-    defaultDurationMinutes: z.number().int().positive().max(1440).nullable().optional(),
     alarmEnabled: z.boolean().optional().default(false),
     alarmOffsetMinutes: z.number().int().min(0).max(180).optional().default(5),
   })
@@ -16,7 +15,6 @@ export const updateActivitySchema = z
     name: z.string().trim().min(1).max(100).optional(),
     categoryId: z.string().uuid().nullable().optional(),
     description: z.string().trim().max(1000).nullable().optional(),
-    defaultDurationMinutes: z.number().int().positive().max(1440).nullable().optional(),
     alarmEnabled: z.boolean().optional(),
     alarmOffsetMinutes: z.number().int().min(0).max(180).optional(),
     isActive: z.boolean().optional(),

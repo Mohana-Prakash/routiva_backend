@@ -140,7 +140,6 @@ model Activity {
   categoryId         String?   @map("category_id")
   name               String
   description        String?
-  defaultDurationMin Int?      @map("default_duration_minutes")
   alarmEnabled       Boolean   @default(false) @map("alarm_enabled")
   alarmOffsetMinutes Int       @default(5) @map("alarm_offset_minutes")
   isActive           Boolean   @default(true) @map("is_active")

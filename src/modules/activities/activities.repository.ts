@@ -25,7 +25,6 @@ export const activitiesRepository = {
         name: data.name,
         categoryId: data.categoryId ?? null,
         description: data.description ?? null,
-        defaultDurationMin: data.defaultDurationMinutes ?? null,
         alarmEnabled: data.alarmEnabled ?? false,
         alarmOffsetMinutes: data.alarmOffsetMinutes ?? 5,
       },
@@ -34,13 +33,9 @@ export const activitiesRepository = {
   },
 
   update(id: string, data: Partial<UpdateActivityInput>) {
-    const { defaultDurationMinutes, ...rest } = data;
     return prisma.activity.update({
       where: { id },
-      data: {
-        ...rest,
-        ...(defaultDurationMinutes !== undefined ? { defaultDurationMin: defaultDurationMinutes } : {}),
-      },
+      data,
       include: { category: true },
     });
   },

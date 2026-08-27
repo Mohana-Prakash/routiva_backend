@@ -3,15 +3,13 @@ import { sendCreated, sendSuccess } from '../../common/utils/response';
 import { activitiesService } from './activities.service';
 import type { CreateActivityInput, UpdateActivityInput } from './activities.validation';
 
-// Wire shape matches the frontend's `Activity` type (types/activity.ts): `defaultDurationMin`
-// (our internal/DB field name) is exposed as `defaultDurationMinutes`.
+// Wire shape matches the frontend's `Activity` type (types/activity.ts).
 function toActivityDto(activity: {
   id: string;
   userId: string;
   categoryId: string | null;
   name: string;
   description: string | null;
-  defaultDurationMin: number | null;
   alarmEnabled: boolean;
   alarmOffsetMinutes: number;
   isActive: boolean;
@@ -25,7 +23,6 @@ function toActivityDto(activity: {
     categoryId: activity.categoryId,
     name: activity.name,
     description: activity.description,
-    defaultDurationMinutes: activity.defaultDurationMin,
     alarmEnabled: activity.alarmEnabled,
     alarmOffsetMinutes: activity.alarmOffsetMinutes,
     isActive: activity.isActive,

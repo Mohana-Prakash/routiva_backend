@@ -26,7 +26,7 @@ export function toDayScheduleResponse(
   timezone: string,
   materialized: Array<{ occurrence: RenderedOccurrence; log: ActivityLog }>,
 ) {
-  const conflictsByKey = computeSameDayConflicts(materialized.map((m) => m.occurrence));
+  const conflictsByKey = computeSameDayConflicts(materialized);
 
   const items = materialized.map(({ occurrence, log }) => {
     const conflictKeys = conflictsByKey.get(occurrence.occurrenceKey) ?? [];

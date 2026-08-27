@@ -35,8 +35,34 @@ function resolveTimeField(next: string | undefined, existing: string | null, tim
   return next ?? existing;
 }
 
+/**
+ * Once an occurrence has been started, completed, or skipped, its planned start/end time is
+ * historical — changing it after the fact would retroactively contradict the tracking data
+ * already recorded against it. A log that doesn't exist yet, or is still PLANNED, is fair game.
+ */
+async function assertOccurrenceStillPlanned(userId: string, occurrenceKey: string): Promise<void> {
+  const log = await trackingRepository.findByOccurrenceKey(userId, occurrenceKey);
+  if (log && log.status !== 'PLANNED') {
+    throw AppError.invalidState(
+      'Cannot change the time for this date — it has already started, been completed, or been skipped',
+    );
+  }
+}
+
 function assertNotPast(date: string, timezone: string, message: string): void {
   if (date < todayInTimezone(timezone)) {
+    throw AppError.validation(message);
+  }
+}
+
+/**
+ * For a date-specific (exception) time, `assertNotPast` alone only rejects past *dates* — a
+ * time earlier than right now on today's date passes it. This catches that case too. No-op for
+ * a timeless slot (nothing to compare) or a date that's already in the future.
+ */
+function assertNotPastTime(date: string, time: string | null | undefined, timezone: string, message: string): void {
+  if (!time) return;
+  if (localTimeToUtc(date, time, timezone).getTime() < Date.now()) {
     throw AppError.validation(message);
   }
 }
@@ -271,6 +297,9 @@ export const schedulesService = {
   async createException(userId: string, timezone: string, input: CreateExceptionInput) {
     await assertActivityOwnership(input.activityId, userId);
     assertNotPast(input.date, timezone, 'Cannot create a schedule exception for a past date');
+    if (input.action !== 'SKIP') {
+      assertNotPastTime(input.date, input.startTime, timezone, 'Start time has already passed today');
+    }
 
     if (input.sourceScheduleEntryId) {
       const source = await schedulesRepository.findEntryForUser(input.sourceScheduleEntryId, userId);
@@ -281,13 +310,25 @@ export const schedulesService = {
       if (duplicate) {
         throw AppError.duplicate('An exception already exists for this schedule entry on this date');
       }
+
+      if (input.action === 'MOVE') {
+        await assertOccurrenceStillPlanned(userId, `se:${input.sourceScheduleEntryId}:${input.date}`);
+      }
     }
 
     // A timeless exception (no fixed slot) can never conflict with anything, so conflict
     // checking only applies when this exception actually has a time.
     if (input.action !== 'SKIP' && !input.override && input.startTime && input.endTime) {
       const occurrences = await schedulesService.renderDate(userId, input.date, timezone);
-      const remaining = occurrences.filter((o) => o.scheduleEntryId !== input.sourceScheduleEntryId);
+      const logsForDate = await trackingRepository.listForDate(userId, dateStringToDbDate(input.date));
+      const resolvedKeys = new Set(
+        logsForDate.filter((log) => log.status !== 'PLANNED' && log.status !== 'IN_PROGRESS').map((log) => log.occurrenceKey),
+      );
+      // An occurrence whose outcome is already settled (completed/skipped/etc.) isn't really
+      // occupying its planned slot anymore, so it shouldn't block a new activity from using it.
+      const remaining = occurrences.filter(
+        (o) => o.scheduleEntryId !== input.sourceScheduleEntryId && !resolvedKeys.has(o.occurrenceKey),
+      );
 
       const wraps = crossesMidnight(input.startTime, input.endTime);
       const endDate = wraps ? DateTime.fromISO(input.date).plus({ days: 1 }).toFormat('yyyy-MM-dd') : input.date;
@@ -339,6 +380,13 @@ export const schedulesService = {
   async updateException(id: string, userId: string, timezone: string, input: UpdateExceptionInput) {
     const existing = await schedulesService.getExceptionOwned(id, userId);
     assertNotPast(dbDateToDateString(existing.date), timezone, 'Cannot modify a past schedule exception');
+
+    if (input.startTime !== undefined || input.endTime !== undefined) {
+      await assertOccurrenceStillPlanned(userId, `ex:${id}:${dbDateToDateString(existing.date)}`);
+    }
+    if (input.startTime !== undefined) {
+      assertNotPastTime(dbDateToDateString(existing.date), input.startTime, timezone, 'Start time has already passed today');
+    }
 
     return schedulesRepository.updateException(id, {
       startTime: input.startTime ?? existing.startTime,
