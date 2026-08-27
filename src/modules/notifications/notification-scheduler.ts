@@ -104,8 +104,12 @@ async function scheduleStage(
   const queue = getNotificationQueue();
   const delayMs = Math.max(0, notifyAt.toMillis() - Date.now());
 
+  // BullMQ's jobId must not contain ":" (throws "Custom Id cannot contain :") — jobKey does,
+  // by design, so it can't be reused here directly. job.id (a plain UUID from the upsert above,
+  // stable across re-scheduling the same occurrence+stage since it's keyed on jobKey) is used
+  // instead; it's just as good a dedupe/replace key for the BullMQ side.
   try {
-    await queue.remove(jobKey);
+    await queue.remove(job.id);
   } catch {
     // no-op: job may not exist yet
   }
@@ -120,7 +124,7 @@ async function scheduleStage(
       kind: stage.kind,
       actions: stage.actions,
     },
-    { jobId: jobKey, delay: delayMs },
+    { jobId: job.id, delay: delayMs },
   );
 
   logger.debug({ userId, jobKey, delayMs, kind: stage.kind }, 'Notification reminder scheduled');
