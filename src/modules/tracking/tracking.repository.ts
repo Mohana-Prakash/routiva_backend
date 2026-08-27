@@ -129,33 +129,4 @@ export const trackingRepository = {
     });
   },
 
-  findExpiredInProgress(userId: string, beforeUtc: Date) {
-    return prisma.activityLog.findMany({
-      where: { userId, status: LogStatus.IN_PROGRESS, plannedEnd: { lt: beforeUtc } },
-    });
-  },
-
-  /** Timeless equivalent of findExpiredInProgress — see findExpiredTimelessPlanned. */
-  findExpiredTimelessInProgress(userId: string, beforeDate: Date) {
-    return prisma.activityLog.findMany({
-      where: { userId, status: LogStatus.IN_PROGRESS, plannedEnd: null, activityDate: { lt: beforeDate } },
-    });
-  },
-
-  /**
-   * Auto-completes logs still running past their planned end time. actualEnd is backfilled to
-   * each row's own plannedEnd (the moment it was scheduled to finish), not "now" the sweep
-   * happens to run — the sweep can lag its interval, and using `now` would inflate actual
-   * duration by however late the sweep was.
-   */
-  async autoCompleteExpired(logs: { id: string; plannedEnd: Date | null }[]) {
-    await prisma.$transaction(
-      logs.map((log) =>
-        prisma.activityLog.updateMany({
-          where: { id: log.id, status: LogStatus.IN_PROGRESS },
-          data: { status: LogStatus.COMPLETED, actualEnd: log.plannedEnd ?? new Date(), completedAt: new Date() },
-        }),
-      ),
-    );
-  },
 };

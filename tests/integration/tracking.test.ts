@@ -3,6 +3,7 @@ import { app } from '../testUtils/app';
 import { resetDatabase } from '../testUtils/db';
 import { closeAll } from '../testUtils/teardown';
 import { authHeader, registerAndLogin } from '../testUtils/auth';
+import { prisma } from '../../src/db/prisma';
 
 afterEach(async () => {
   await resetDatabase();
@@ -84,5 +85,65 @@ describe('Activity tracking', () => {
 
     const fetched = await request(app).get(`/api/v1/activity-logs/${logId}`).set(authHeader(user)).expect(200);
     expect(fetched.body.data.status).toBe('COMPLETED');
+  });
+
+  it('completing with an explicit actual duration uses the provided actualStart/actualEnd, not "now"', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+
+    const actualStart = new Date(Date.now() - 15 * 60_000).toISOString();
+    const actualEnd = new Date().toISOString();
+    const res = await request(app)
+      .post(`/api/v1/activity-logs/${logId}/complete`)
+      .set(authHeader(user))
+      .send({ actualStart, actualEnd })
+      .expect(200);
+
+    expect(res.body.data.status).toBe('COMPLETED');
+    expect(res.body.data.actualStart).toBe(actualStart);
+    expect(res.body.data.actualEnd).toBe(actualEnd);
+  });
+
+  it('rejects completing with actualEnd before actualStart', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+
+    const res = await request(app)
+      .post(`/api/v1/activity-logs/${logId}/complete`)
+      .set(authHeader(user))
+      .send({ actualStart: new Date().toISOString(), actualEnd: new Date(Date.now() - 60_000).toISOString() });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('a MISSED log — the window passed with no action taken — can still be completed or skipped', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+    await prisma.activityLog.update({ where: { id: logId }, data: { status: 'MISSED' } });
+
+    const res = await request(app).post(`/api/v1/activity-logs/${logId}/complete`).set(authHeader(user)).expect(200);
+    expect(res.body.data.status).toBe('COMPLETED');
+  });
+
+  it('a MISSED log can be skipped instead of completed', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+    await prisma.activityLog.update({ where: { id: logId }, data: { status: 'MISSED' } });
+
+    const res = await request(app).post(`/api/v1/activity-logs/${logId}/skip`).set(authHeader(user)).expect(200);
+    expect(res.body.data.status).toBe('SKIPPED');
+  });
+
+  it('rejects skipping an in-progress activity whose planned window has already closed — complete it instead', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+    await request(app).post(`/api/v1/activity-logs/${logId}/start`).set(authHeader(user)).expect(200);
+    await prisma.activityLog.update({ where: { id: logId }, data: { plannedEnd: new Date(Date.now() - 60_000) } });
+
+    const res = await request(app).post(`/api/v1/activity-logs/${logId}/skip`).set(authHeader(user));
+    expect(res.status).toBe(422);
+
+    const stillInProgress = await request(app).get(`/api/v1/activity-logs/${logId}`).set(authHeader(user)).expect(200);
+    expect(stillInProgress.body.data.status).toBe('IN_PROGRESS');
   });
 });

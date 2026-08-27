@@ -29,6 +29,20 @@ export const correctLogSchema = z
   .strict()
   .refine((v) => Object.keys(v).length > 0, 'At least one field must be provided');
 
+// Optional actual start/end for the in-app "how long did you actually spend on this"
+// completion prompt. Omitted entirely (e.g. the service worker's headless notification-button
+// completion, which can't show a prompt) falls back to the simple one-tap default in
+// trackingService.complete.
+export const completeLogSchema = z
+  .object({
+    actualStart: z.string().datetime().optional(),
+    actualEnd: z.string().datetime().optional(),
+  })
+  .strict()
+  .refine((v) => (!!v.actualStart) === (!!v.actualEnd), {
+    message: 'Provide both actualStart and actualEnd, or neither',
+  });
+
 export const dailySummaryQuerySchema = z
   .object({
     date: dateString.optional(),
@@ -37,3 +51,4 @@ export const dailySummaryQuerySchema = z
 
 export type ListLogsQuery = z.infer<typeof listLogsQuerySchema>;
 export type CorrectLogInput = z.infer<typeof correctLogSchema>;
+export type CompleteLogInput = z.infer<typeof completeLogSchema>;
