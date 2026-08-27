@@ -5,11 +5,24 @@ import { logger } from './common/logger';
 import { prisma, disconnectPrisma } from './db/prisma';
 import { disconnectRedis, getRedisClient } from './db/redis';
 import { registerRepeatableJobs } from './jobs/scheduler';
+import { closeQueues } from './jobs/queues';
+import { startNotificationWorker } from './jobs/workers/notificationWorker';
+import { startScheduleProcessingWorker } from './jobs/workers/scheduleProcessingWorker';
 
 async function main() {
   await prisma.$connect();
   getRedisClient();
   await registerRepeatableJobs();
+
+  // Runs the reminder/schedule-reconciliation workers in this same process instead of a
+  // separate service — this app runs at a scale (single user) where a dedicated worker
+  // instance is pure cost with no benefit. If that ever changes, `npm run worker:start`
+  // (jobs/runWorkers.ts) still exists to split them out again.
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
+    logger.warn('VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY are not set — every push notification will fail to send');
+  }
+  const notificationWorker = startNotificationWorker();
+  const scheduleProcessingWorker = startScheduleProcessingWorker();
 
   const app = createApp();
   const server = app.listen(env.PORT, () => {
@@ -27,6 +40,8 @@ async function main() {
         logger.error({ err }, 'Error while closing HTTP server');
       }
       try {
+        await Promise.all([notificationWorker.close(), scheduleProcessingWorker.close()]);
+        await closeQueues();
         await disconnectPrisma();
         await disconnectRedis();
         logger.info('Shutdown complete');
