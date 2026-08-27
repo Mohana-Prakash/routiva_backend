@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { logger } from '../common/logger';
+import { env } from '../config/env';
 import { startNotificationWorker } from './workers/notificationWorker';
 import { startScheduleProcessingWorker } from './workers/scheduleProcessingWorker';
 import { registerRepeatableJobs } from './scheduler';
@@ -8,6 +9,13 @@ import { disconnectRedis } from '../db/redis';
 import { closeQueues } from './queues';
 
 async function main() {
+  // Otherwise every push send fails with "VAPID keys are not configured" only after a job's
+  // retries exhaust (web-push.util.ts), which is easy to miss — this surfaces it immediately,
+  // once, at the moment it'd actually explain "no reminders are arriving at all".
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
+    logger.warn('VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY are not set — every push notification will fail to send');
+  }
+
   const notificationWorker = startNotificationWorker();
   const scheduleProcessingWorker = startScheduleProcessingWorker();
   await registerRepeatableJobs();
