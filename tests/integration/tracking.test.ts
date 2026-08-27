@@ -116,7 +116,7 @@ describe('Activity tracking', () => {
     expect(res.status).toBe(400);
   });
 
-  it('a MISSED log — the window passed with no action taken — can still be completed or skipped', async () => {
+  it('a MISSED log — the window passed with no action taken — can still be completed', async () => {
     const user = await registerAndLogin();
     const logId = await setupTodayLog(user);
     await prisma.activityLog.update({ where: { id: logId }, data: { status: 'MISSED' } });
@@ -125,13 +125,16 @@ describe('Activity tracking', () => {
     expect(res.body.data.status).toBe('COMPLETED');
   });
 
-  it('a MISSED log can be skipped instead of completed', async () => {
+  it('rejects skipping a MISSED log — Missed is already the "not done" label, Skip adds nothing', async () => {
     const user = await registerAndLogin();
     const logId = await setupTodayLog(user);
     await prisma.activityLog.update({ where: { id: logId }, data: { status: 'MISSED' } });
 
-    const res = await request(app).post(`/api/v1/activity-logs/${logId}/skip`).set(authHeader(user)).expect(200);
-    expect(res.body.data.status).toBe('SKIPPED');
+    const res = await request(app).post(`/api/v1/activity-logs/${logId}/skip`).set(authHeader(user));
+    expect(res.status).toBe(422);
+
+    const stillMissed = await request(app).get(`/api/v1/activity-logs/${logId}`).set(authHeader(user)).expect(200);
+    expect(stillMissed.body.data.status).toBe('MISSED');
   });
 
   it('rejects skipping an in-progress activity whose planned window has already closed — complete it instead', async () => {

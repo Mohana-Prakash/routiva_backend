@@ -108,8 +108,9 @@ export const trackingService = {
 
     // Once actually started, skipping after the planned window has closed is meaningless —
     // the user engaged with it, so the only honest options left are Complete (say how long
-    // they actually spent) or leaving it as is. MISSED (never started) is unaffected by this:
-    // acknowledging it as skipped is still meaningful even after its window closed.
+    // they actually spent) or leaving it as is. MISSED is excluded entirely: it's already the
+    // system's own "window passed, no action taken" label, so re-labeling it Skipped adds
+    // nothing — Complete (if it actually happened elsewhere) is the only meaningful action left.
     if (log.status === LogStatus.IN_PROGRESS && log.plannedEnd && log.plannedEnd.getTime() < Date.now()) {
       throw AppError.invalidState('Cannot skip an activity that has already started and is past its scheduled end — complete it instead');
     }
@@ -117,7 +118,7 @@ export const trackingService = {
     const result = await trackingRepository.transitionStatus(
       id,
       userId,
-      [LogStatus.PLANNED, LogStatus.IN_PROGRESS, LogStatus.MISSED],
+      [LogStatus.PLANNED, LogStatus.IN_PROGRESS],
       { status: LogStatus.SKIPPED },
     );
 
