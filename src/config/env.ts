@@ -24,9 +24,11 @@ const envSchema = z.object({
   VAPID_PRIVATE_KEY: z.string().optional().default(''),
   VAPID_SUBJECT: z.string().optional().default('mailto:admin@example.com'),
 
-  // QStash (Upstash) - scheduled HTTP callbacks that replace the always-on BullMQ worker.
-  // All optional so the app still boots without them (e.g. before Render env vars are set);
-  // the QStash routes themselves refuse to operate if the signing keys are missing.
+  // QStash (Upstash) - schedules and delivers every reminder via an HTTP callback instead of
+  // an always-on worker. All optional so the app still boots without them (e.g. local dev,
+  // or before Render env vars are set); reminder scheduling itself just no-ops without them
+  // (see notification-scheduler.ts) and the QStash routes refuse to operate without the
+  // signing keys.
   QSTASH_URL: z.string().optional().default(''),
   QSTASH_TOKEN: z.string().optional().default(''),
   QSTASH_CURRENT_SIGNING_KEY: z.string().optional().default(''),

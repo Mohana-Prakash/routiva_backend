@@ -57,16 +57,18 @@ async function buildEndCheckNotification(
 }
 
 /**
- * Delivers one reminder stage. Shared by both delivery mechanisms (BullMQ's worker and the
- * QStash callback) so they can never silently drift from each other — whichever one actually
- * fires first "wins": the status check below is the single idempotency guard that makes it
- * safe for a reminder to be scheduled via both at once (e.g. mid-migration, or if QStash isn't
- * configured and BullMQ is the fallback) without ever double-sending a real push.
+ * Delivers one reminder stage — called from the QStash callback (qstash.controller.ts). Kept
+ * as its own module (rather than inlined into the controller) so the actual delivery logic
+ * stays testable independent of the HTTP layer, and stays a single place to change if delivery
+ * ever needs to change again.
  *
- * Throws only when every push delivery failed for a transient reason — the caller decides
- * whether/how to retry (BullMQ's own retry policy, or the QStash callback's response status)
- * and whether the failure is final enough to call `markFailed`. Every other outcome (success,
- * no subscriptions, nothing to say) is terminal and already recorded before this returns.
+ * The status check below is the idempotency guard: a redelivered/retried message finds the job
+ * no longer SCHEDULED and safely no-ops instead of sending a duplicate push.
+ *
+ * Throws only when every push delivery failed for a transient reason — the caller (the QStash
+ * callback) decides whether to let QStash retry or, once its retries are exhausted, to call
+ * `markFailed` itself. Every other outcome (success, no subscriptions, nothing to say) is
+ * terminal and already recorded in the database before this returns.
  */
 export async function deliverReminder(payload: ReminderPayload): Promise<void> {
   const { notificationJobId, userId, activityName, kind, actions } = payload;

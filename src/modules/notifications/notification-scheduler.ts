@@ -1,6 +1,5 @@
 import { DateTime } from 'luxon';
 import { logger } from '../../common/logger';
-import { getNotificationQueue } from '../../jobs/queues';
 import { notificationsRepository } from './notifications.repository';
 import { getApiBaseUrl, getQStashClient, isQStashPublishingConfigured } from './qstash.util';
 import type { ReminderPayload } from './reminder-delivery';
@@ -94,20 +93,6 @@ function buildStages(occurrence: RenderedOccurrence): ReminderStage[] {
   return [];
 }
 
-/**
- * QStash cannot reach a local machine (see qstash.util.ts), so local dev has no publicly
- * reachable callback URL to give it — API_BASE_URL is deliberately left unset there. Whenever
- * both QStash publishing and a callback base URL are available (i.e. everywhere except local
- * dev), QStash is the real delivery path; BullMQ stays as the fallback so reminders still work
- * without a public tunnel while developing. Both paths funnel through the exact same
- * `deliverReminder` (reminder-delivery.ts), which re-checks the job is still SCHEDULED before
- * sending — so if a reminder is ever scheduled via both (e.g. mid-migration), whichever fires
- * first wins and the other is a safe no-op, never a duplicate push.
- */
-function shouldUseQStash(): boolean {
-  return isQStashPublishingConfigured() && !!getApiBaseUrl();
-}
-
 type SchedulablePayload = Omit<ReminderPayload, 'notificationJobId'>;
 
 async function scheduleStageViaQStash(
@@ -176,44 +161,6 @@ async function scheduleStageViaQStash(
   );
 }
 
-async function scheduleStageViaBullMQ(
-  jobKey: string,
-  notifyAt: DateTime,
-  payload: SchedulablePayload,
-): Promise<void> {
-  const queue = getNotificationQueue();
-
-  // Same "skip if unchanged" reasoning as the QStash path above — see that comment.
-  const existing = await notificationsRepository.findJobByKey(jobKey);
-  if (existing && existing.status === 'SCHEDULED' && existing.scheduledAt.getTime() === notifyAt.toMillis()) {
-    const stillQueued = await queue.getJob(existing.id);
-    if (stillQueued) return;
-  }
-
-  const job = await notificationsRepository.upsertJob({
-    userId: payload.userId,
-    activityLogId: payload.activityLogId,
-    jobKey,
-    scheduledAt: notifyAt.toJSDate(),
-  });
-
-  const delayMs = Math.max(0, notifyAt.toMillis() - Date.now());
-
-  // BullMQ's jobId must not contain ":" (throws "Custom Id cannot contain :") — jobKey does,
-  // by design, so it can't be reused here directly. job.id (a plain UUID from the upsert above,
-  // stable across re-scheduling the same occurrence+stage since it's keyed on jobKey) is used
-  // instead; it's just as good a dedupe/replace key for the BullMQ side.
-  try {
-    await queue.remove(job.id);
-  } catch {
-    // no-op: job may not exist yet
-  }
-
-  await queue.add('send-reminder', { ...payload, notificationJobId: job.id }, { jobId: job.id, delay: delayMs });
-
-  logger.debug({ userId: payload.userId, jobKey, delayMs, kind: payload.kind }, 'Reminder scheduled via BullMQ');
-}
-
 async function scheduleStage(
   userId: string,
   timezone: string,
@@ -231,8 +178,16 @@ async function scheduleStage(
     notifyAt = applyQuietHours(notifyAt, timezone, preferences.quietHoursStart, preferences.quietHoursEnd);
   }
 
+  // QStash cannot reach a local machine (see qstash.util.ts), so local dev has no publicly
+  // reachable callback URL to give it — API_BASE_URL is deliberately left unset there. This is
+  // a silent no-op rather than an error: local dev simply doesn't get reminder scheduling,
+  // same as it wouldn't be able to receive any other externally-triggered webhook either.
+  if (!isQStashPublishingConfigured() || !getApiBaseUrl()) {
+    logger.debug({ userId, occurrenceKey: occurrence.occurrenceKey }, 'Skipping reminder scheduling — QStash is not configured in this environment');
+    return;
+  }
+
   const jobKey = `${userId}:${occurrence.occurrenceKey}:${occurrence.alarmOffsetMinutes}:${stage.kind}`;
-  // notificationJobId is filled in by each path once it knows the row's id — omitted here.
   const payload: SchedulablePayload = {
     userId,
     activityLogId,
@@ -241,11 +196,7 @@ async function scheduleStage(
     actions: stage.actions,
   };
 
-  if (shouldUseQStash()) {
-    await scheduleStageViaQStash(jobKey, notifyAt, payload);
-  } else {
-    await scheduleStageViaBullMQ(jobKey, notifyAt, payload);
-  }
+  await scheduleStageViaQStash(jobKey, notifyAt, payload);
 }
 
 export async function scheduleOrUpdateReminder(

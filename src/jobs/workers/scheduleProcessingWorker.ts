@@ -60,7 +60,8 @@ export function startScheduleProcessingWorker(): Worker {
   const worker = new Worker(QUEUE_NAMES.scheduleProcessing, processJob, {
     connection: createRedisConnection(),
     concurrency: 1,
-    // See the matching comment in notificationWorker.ts — same tradeoff, same reasoning.
+    // Trades a little crashed-job recovery latency for far less constant Redis polling — see
+    // the reconcile-interval comment in scheduler.ts for the same reasoning.
     stalledInterval: 120_000,
   });
 

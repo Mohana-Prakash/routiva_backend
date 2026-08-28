@@ -4,10 +4,12 @@ import type { RenderedOccurrence } from '../../src/modules/schedules/schedules.t
 const mockPublishJSON = jest.fn();
 const mockMessagesGet = jest.fn();
 const mockMessagesDelete = jest.fn();
+const mockIsQStashPublishingConfigured = jest.fn(() => true);
+const mockGetApiBaseUrl = jest.fn(() => 'https://api.example.test');
 
 jest.mock('../../src/modules/notifications/qstash.util', () => ({
-  isQStashPublishingConfigured: () => true,
-  getApiBaseUrl: () => 'https://api.example.test',
+  isQStashPublishingConfigured: () => mockIsQStashPublishingConfigured(),
+  getApiBaseUrl: () => mockGetApiBaseUrl(),
   getQStashClient: () => ({
     publishJSON: mockPublishJSON,
     messages: { get: mockMessagesGet, delete: mockMessagesDelete },
@@ -68,6 +70,18 @@ describe('scheduleOrUpdateReminder (QStash path)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetOrCreatePreferences.mockResolvedValue(preferences);
+    mockIsQStashPublishingConfigured.mockReturnValue(true);
+    mockGetApiBaseUrl.mockReturnValue('https://api.example.test');
+  });
+
+  it('does nothing when QStash is not configured (e.g. local dev) — no fallback anymore', async () => {
+    mockGetApiBaseUrl.mockReturnValue(''); // API_BASE_URL unset, as it deliberately is in local dev
+    const occurrence = makeOccurrence();
+
+    await scheduleOrUpdateReminder('user-1', 'UTC', occurrence, 'log-1');
+
+    expect(mockPublishJSON).not.toHaveBeenCalled();
+    expect(mockUpsertJob).not.toHaveBeenCalled();
   });
 
   it('publishes a new QStash message with the exact occurrence time and stores the returned message id', async () => {

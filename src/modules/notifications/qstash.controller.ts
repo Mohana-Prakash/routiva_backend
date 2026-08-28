@@ -37,10 +37,8 @@ export const qstashController = {
     const retried = req.headers['upstash-retried'] as string | undefined;
     logger.info({ messageId, retried, body: req.body }, 'QStash callback verified and received');
 
-    // Real alarm delivery (Phase 3+) will look up the referenced activity log here, re-check
-    // it's still due/active/not-already-sent (see notificationWorker.ts's existing idempotency
-    // guard on NotificationJob.status), and send the push — using messageId as an additional
-    // dedupe key against retried deliveries. This PoC only proves the verified round trip.
+    // Real alarm delivery now happens via the `deliver` handler below — this route is kept only
+    // as the original signature-verification proof-of-concept / manual test round trip.
     sendSuccess(res, { received: true, messageId: messageId ?? null, echo: req.body });
   },
 
