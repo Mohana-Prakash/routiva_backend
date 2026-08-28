@@ -363,8 +363,14 @@ export const schedulesService = {
     if (input.action === 'SKIP' && input.sourceScheduleEntryId) {
       const key = `se:${input.sourceScheduleEntryId}:${input.date}`;
       const existingLog = await trackingRepository.findByOccurrenceKey(userId, key);
-      if (existingLog && existingLog.status === 'PLANNED') {
-        await trackingRepository.transitionStatus(existingLog.id, userId, ['PLANNED'], { status: 'SKIPPED' });
+      if (existingLog) {
+        if (existingLog.status === 'PLANNED') {
+          await trackingRepository.transitionStatus(existingLog.id, userId, ['PLANNED'], { status: 'SKIPPED' });
+        }
+        // Regardless of the log's prior status, this date is now explicitly skipped — any
+        // reminder still queued for it (e.g. the end-of-window "did you do this?" check) would
+        // otherwise still fire and reference an activity the user just said isn't happening.
+        await cancelRemindersForActivityLogs([existingLog.id]);
       }
     }
 
@@ -400,6 +406,16 @@ export const schedulesService = {
   async deleteException(id: string, userId: string, timezone: string) {
     const existing = await schedulesService.getExceptionOwned(id, userId);
     assertNotPast(dbDateToDateString(existing.date), timezone, 'Cannot delete a past schedule exception');
+
+    // Removing this date's exception means the activity it represented no longer happens
+    // (either it reverts to the base schedule, or — for a standalone ADD — disappears
+    // entirely) — either way, any reminder still queued for it should go with it.
+    const key = `ex:${id}:${dbDateToDateString(existing.date)}`;
+    const existingLog = await trackingRepository.findByOccurrenceKey(userId, key);
+    if (existingLog) {
+      await cancelRemindersForActivityLogs([existingLog.id]);
+    }
+
     await schedulesRepository.deleteException(id);
   },
 };

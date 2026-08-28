@@ -2,6 +2,7 @@ import { LogStatus } from '@prisma/client';
 import { DateTime } from 'luxon';
 import { AppError } from '../../common/errors/AppError';
 import { trackingRepository } from './tracking.repository';
+import { cancelRemindersForActivityLogs } from '../notifications/notification-scheduler';
 import type { CompleteLogInput, CorrectLogInput, ListLogsQuery } from './tracking.validation';
 
 const MAX_ACTUAL_DURATION_MINUTES = 24 * 60;
@@ -100,6 +101,10 @@ export const trackingService = {
       throw AppError.invalidState(`Cannot complete an activity log with status ${current.status}`);
     }
 
+    // Now resolved — any reminder still queued for it (e.g. the end-of-window "did you do
+    // this?" check) would otherwise still fire and ask about something already handled.
+    await cancelRemindersForActivityLogs([id]);
+
     return trackingService.getOwned(id, userId);
   },
 
@@ -129,6 +134,10 @@ export const trackingService = {
       }
       throw AppError.invalidState(`Cannot skip an activity log with status ${current.status}`);
     }
+
+    // Now resolved — any reminder still queued for it (e.g. the end-of-window "did you do
+    // this?" check) would otherwise still fire and ask about something already handled.
+    await cancelRemindersForActivityLogs([id]);
 
     return trackingService.getOwned(id, userId);
   },

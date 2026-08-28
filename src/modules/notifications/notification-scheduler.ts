@@ -4,7 +4,7 @@ import { getNotificationQueue } from '../../jobs/queues';
 import { notificationsRepository } from './notifications.repository';
 import type { RenderedOccurrence } from '../schedules/schedules.types';
 
-export type ReminderKind = 'pre-reminder' | 'timed-actionable' | 'timeless-actionable';
+export type ReminderKind = 'pre-reminder' | 'timed-actionable' | 'timeless-actionable' | 'end-check';
 export type ReminderAction = 'start' | 'complete' | 'skip' | 'close';
 
 /**
@@ -46,20 +46,36 @@ interface ReminderStage {
 function buildStages(occurrence: RenderedOccurrence): ReminderStage[] {
   if (occurrence.plannedStartUtc) {
     const startAt = DateTime.fromJSDate(occurrence.plannedStartUtc);
+    // Most browsers cap a notification at 2 visible action buttons (extras are silently
+    // dropped) — Start + Skip is the pair that matters the moment it begins; Complete without
+    // ever starting is still reachable by opening the app, or via the end-check stage below if
+    // the window closes without action.
     const actionable: ReminderStage = {
       kind: 'timed-actionable',
       notifyAt: startAt,
-      actions: ['start', 'complete', 'skip'],
+      actions: ['start', 'skip'],
     };
-    if (occurrence.alarmOffsetMinutes <= 0) return [actionable];
-    // Two notifications for a timed activity with a lead time: a plain heads-up before it
-    // starts (no actions — nothing is actionable yet, it hasn't started), then a second,
-    // actionable one exactly at start time (Start/Complete/Skip, actionable straight from the
-    // notification — see worker/index.js's notificationclick handler).
-    return [
-      { kind: 'pre-reminder', notifyAt: startAt.minus({ minutes: occurrence.alarmOffsetMinutes }), actions: [] },
-      actionable,
-    ];
+    const stages: ReminderStage[] = occurrence.alarmOffsetMinutes <= 0
+      ? [actionable]
+      : [
+          // Two notifications for a timed activity with a lead time: a plain heads-up before
+          // it starts (no actions — nothing is actionable yet, it hasn't started), then a
+          // second, actionable one exactly at start time — see worker/index.js's
+          // notificationclick handler.
+          { kind: 'pre-reminder', notifyAt: startAt.minus({ minutes: occurrence.alarmOffsetMinutes }), actions: [] },
+          actionable,
+        ];
+
+    if (occurrence.plannedEndUtc) {
+      // A third check right at the planned end: the system never assumes an outcome just
+      // because time ran out (see trackingService), so instead of staying silent it nudges —
+      // "did you get to this?" if it was never started, or "time's up" if it's still running.
+      // The actions here are placeholders; notificationWorker.ts recomputes them from the
+      // log's actual status at delivery time, since that can only be known then, not now.
+      stages.push({ kind: 'end-check', notifyAt: DateTime.fromJSDate(occurrence.plannedEndUtc), actions: [] });
+    }
+
+    return stages;
   }
 
   if (occurrence.reminderAtUtc) {
@@ -94,6 +110,21 @@ async function scheduleStage(
   }
 
   const jobKey = `${userId}:${occurrence.occurrenceKey}:${occurrence.alarmOffsetMinutes}:${stage.kind}`;
+  const queue = getNotificationQueue();
+
+  // This runs on every schedule read (dashboard load, tab refocus) and every reconciliation
+  // sweep (every 2 minutes), almost always for a reminder that hasn't actually changed since
+  // last time. Recreating the BullMQ job unconditionally was burning a large, steadily growing
+  // share of the account's monthly Redis command budget on pure churn. If Postgres already has
+  // this exact target time recorded, do one cheap Redis read to confirm the job is still really
+  // there (self-healing if it isn't — e.g. Redis data was cleared) instead of unconditionally
+  // deleting and recreating it.
+  const existing = await notificationsRepository.findJobByKey(jobKey);
+  if (existing && existing.status === 'SCHEDULED' && existing.scheduledAt.getTime() === notifyAt.toMillis()) {
+    const stillQueued = await queue.getJob(existing.id);
+    if (stillQueued) return;
+  }
+
   const job = await notificationsRepository.upsertJob({
     userId,
     activityLogId,
@@ -101,7 +132,6 @@ async function scheduleStage(
     scheduledAt: notifyAt.toJSDate(),
   });
 
-  const queue = getNotificationQueue();
   const delayMs = Math.max(0, notifyAt.toMillis() - Date.now());
 
   // BullMQ's jobId must not contain ":" (throws "Custom Id cannot contain :") — jobKey does,
