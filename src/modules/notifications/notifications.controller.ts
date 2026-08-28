@@ -11,6 +11,7 @@ function toPreferencesDto(preferences: {
   quietHoursEnabled: boolean;
   quietHoursStart: string | null;
   quietHoursEnd: string | null;
+  hasActiveSubscription?: boolean;
 }) {
   return {
     pushEnabled: preferences.pushEnabled,
@@ -18,6 +19,9 @@ function toPreferencesDto(preferences: {
     quietHoursEnabled: preferences.quietHoursEnabled,
     quietHoursStart: preferences.quietHoursStart,
     quietHoursEnd: preferences.quietHoursEnd,
+    // Only getPreferences computes this (updatePreferences doesn't need the extra query) —
+    // omitted rather than a possibly-stale guess when absent.
+    ...(preferences.hasActiveSubscription !== undefined && { hasActiveSubscription: preferences.hasActiveSubscription }),
   };
 }
 

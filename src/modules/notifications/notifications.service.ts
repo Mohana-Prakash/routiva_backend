@@ -18,8 +18,18 @@ export const notificationsService = {
     await notificationsRepository.revokeSubscription(subscription.id);
   },
 
-  getPreferences(userId: string) {
-    return notificationsRepository.getOrCreatePreferences(userId);
+  async getPreferences(userId: string) {
+    const [preferences, subscriptions] = await Promise.all([
+      notificationsRepository.getOrCreatePreferences(userId),
+      notificationsRepository.findActiveSubscriptionsForUser(userId),
+    ]);
+    // The frontend's local browser check (does *this* device have a saved PushSubscription
+    // object) can't tell whether the backend actually still has it on file — a subscription
+    // can be silently revoked server-side (e.g. after a 410 from the push service) without the
+    // browser ever finding out. This is the source of truth for "will a reminder actually reach
+    // me anywhere", used to warn the user when it's false despite everything looking fine
+    // locally.
+    return { ...preferences, hasActiveSubscription: subscriptions.length > 0 };
   },
 
   updatePreferences(userId: string, input: UpdatePreferencesInput) {
