@@ -60,6 +60,8 @@ export function startScheduleProcessingWorker(): Worker {
   const worker = new Worker(QUEUE_NAMES.scheduleProcessing, processJob, {
     connection: createRedisConnection(),
     concurrency: 1,
+    // See the matching comment in notificationWorker.ts — same tradeoff, same reasoning.
+    stalledInterval: 120_000,
   });
 
   worker.on('failed', (job, err) => {

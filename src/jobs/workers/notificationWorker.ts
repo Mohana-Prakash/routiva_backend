@@ -127,6 +127,12 @@ export function startNotificationWorker(): Worker<ReminderJobData> {
   const worker = new Worker<ReminderJobData>(QUEUE_NAMES.notifications, processReminder, {
     connection: createRedisConnection(),
     concurrency: 10,
+    // Default is 30s, i.e. a Redis round-trip twice a minute forever just to check for
+    // crashed workers, independent of whether there's ever anything to process. This app's
+    // job volume is tiny and a stalled job sitting an extra minute or two before recovery is
+    // harmless, so trading a little recovery latency for far less constant Redis chatter
+    // (see notification-scheduler.ts's churn comment) is the right call here.
+    stalledInterval: 120_000,
   });
 
   worker.on('failed', (job, err) => {
