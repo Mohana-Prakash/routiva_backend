@@ -52,6 +52,10 @@ export const notificationsRepository = {
     });
   },
 
+  setQStashMessageId(id: string, qstashMessageId: string) {
+    return prisma.notificationJob.update({ where: { id }, data: { qstashMessageId } });
+  },
+
   markSent(id: string) {
     return prisma.notificationJob.update({ where: { id }, data: { status: NotificationJobStatus.SENT, sentAt: new Date() } });
   },
@@ -67,12 +71,23 @@ export const notificationsRepository = {
     return prisma.notificationJob.update({ where: { id }, data: { status: NotificationJobStatus.CANCELLED } });
   },
 
-  cancelJobsForActivityLogIds(activityLogIds: string[]) {
-    if (activityLogIds.length === 0) return Promise.resolve({ count: 0 });
-    return prisma.notificationJob.updateMany({
+  /**
+   * Returns the rows it actually cancelled (id + qstashMessageId), not just a count — the
+   * caller needs the message ids to also delete the still-queued QStash messages, which
+   * `updateMany` alone can't hand back.
+   */
+  async cancelJobsForActivityLogIds(activityLogIds: string[]) {
+    if (activityLogIds.length === 0) return [];
+    const toCancel = await prisma.notificationJob.findMany({
       where: { activityLogId: { in: activityLogIds }, status: NotificationJobStatus.SCHEDULED },
+      select: { id: true, qstashMessageId: true },
+    });
+    if (toCancel.length === 0) return [];
+    await prisma.notificationJob.updateMany({
+      where: { id: { in: toCancel.map((job) => job.id) } },
       data: { status: NotificationJobStatus.CANCELLED },
     });
+    return toCancel;
   },
 
   findDueJobs(beforeUtc: Date) {

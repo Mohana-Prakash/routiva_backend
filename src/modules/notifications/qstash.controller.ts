@@ -2,8 +2,15 @@ import { Request, Response } from 'express';
 import { AppError } from '../../common/errors/AppError';
 import { logger } from '../../common/logger';
 import { sendSuccess } from '../../common/utils/response';
+import { notificationsRepository } from './notifications.repository';
+import { deliverReminder } from './reminder-delivery';
 import { getApiBaseUrl, getQStashClient, isQStashPublishingConfigured, verifyQStashSignature } from './qstash.util';
-import type { QStashTestTriggerInput } from './qstash.validation';
+import { reminderDeliverSchema, type QStashTestTriggerInput } from './qstash.validation';
+
+/** Matches the `retries` set when publishing in notification-scheduler.ts's
+ *  scheduleStageViaQStash — used to tell "this attempt failed, but QStash will retry" apart
+ *  from "this was the last attempt, give up and record it". */
+const QSTASH_MAX_RETRIES = 3;
 
 export const qstashController = {
   /**
@@ -63,5 +70,46 @@ export const qstashController = {
 
     logger.info({ messageId: result.messageId, callbackUrl }, 'QStash test message published');
     sendSuccess(res, { messageId: result.messageId, callbackUrl, delaySeconds: 5 }, 201);
+  },
+
+  /**
+   * Real alarm delivery callback — QStash calls this at the exact time notification-scheduler.ts
+   * published for. Auth is the signature alone, same as `callback` above.
+   */
+  async deliver(req: Request, res: Response): Promise<void> {
+    const signature = req.headers['upstash-signature'] as string | undefined;
+    const rawBody = req.rawBody?.toString('utf8') ?? '';
+    const url = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+
+    const valid = await verifyQStashSignature({ signature, body: rawBody, url });
+    if (!valid) {
+      throw AppError.authRequired('Invalid or missing QStash signature');
+    }
+
+    const payload = reminderDeliverSchema.parse(req.body);
+    const retried = Number(req.headers['upstash-retried'] ?? 0);
+    const isLastAttempt = retried >= QSTASH_MAX_RETRIES;
+
+    try {
+      await deliverReminder(payload);
+      sendSuccess(res, { delivered: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown delivery error';
+      logger.error({ err, notificationJobId: payload.notificationJobId, retried, isLastAttempt }, 'QStash reminder delivery failed');
+
+      if (!isLastAttempt) {
+        // Re-throw so this responds non-2xx and QStash retries per its own backoff — do NOT
+        // mark the job FAILED yet, it may still succeed on a later attempt.
+        throw err;
+      }
+
+      // Retries exhausted: record the terminal failure ourselves and acknowledge with 200 —
+      // no point having QStash keep retrying (or route to its DLQ) a state we've already
+      // resolved on our side.
+      await notificationsRepository
+        .markFailed(payload.notificationJobId, message, retried + 1)
+        .catch((e) => logger.error({ err: e }, 'Failed to persist notification failure'));
+      sendSuccess(res, { delivered: false, terminal: true });
+    }
   },
 };

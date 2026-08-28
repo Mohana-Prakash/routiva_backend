@@ -292,17 +292,20 @@ model NotificationPreference {
 }
 
 model NotificationJob {
-  id            String                @id @default(uuid())
-  userId        String                @map("user_id")
-  activityLogId String?               @map("activity_log_id")
-  jobKey        String                @unique @map("job_key")
-  scheduledAt   DateTime              @map("scheduled_at")
-  sentAt        DateTime?             @map("sent_at")
-  status        NotificationJobStatus @default(SCHEDULED)
-  failureReason String?               @map("failure_reason")
-  attempts      Int                   @default(0)
-  createdAt     DateTime              @default(now()) @map("created_at")
-  updatedAt     DateTime              @updatedAt @map("updated_at")
+  id              String                @id @default(uuid())
+  userId          String                @map("user_id")
+  activityLogId   String?               @map("activity_log_id")
+  jobKey          String                @unique @map("job_key")
+  scheduledAt     DateTime              @map("scheduled_at")
+  sentAt          DateTime?             @map("sent_at")
+  status          NotificationJobStatus @default(SCHEDULED)
+  failureReason   String?               @map("failure_reason")
+  attempts        Int                   @default(0)
+  // Set only when this job was scheduled via QStash rather than BullMQ — lets us delete the
+  // still-queued QStash message on cancel/reschedule instead of leaving it to fire and no-op.
+  qstashMessageId String?               @map("qstash_message_id")
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
 
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   activityLog ActivityLog? @relation(fields: [activityLogId], references: [id], onDelete: SetNull)

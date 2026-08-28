@@ -11,6 +11,9 @@ export const qstashRouter = Router();
 // user's JWT. Authorization is the signature check inside the controller.
 qstashRouter.post('/callback', asyncHandler(qstashController.callback));
 
+// Real alarm delivery — same signature-only auth as /callback above.
+qstashRouter.post('/deliver', asyncHandler(qstashController.deliver));
+
 // Authenticated: only a logged-in user can originate a test round trip (keeps this from being
 // an open trigger anyone on the internet could hit to burn QStash's free-tier quota).
 qstashRouter.post(
