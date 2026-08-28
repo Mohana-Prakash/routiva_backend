@@ -1,6 +1,6 @@
 import { Client, Receiver, SignatureError } from '@upstash/qstash';
 import { env } from '../../config/env';
-import { logger } from '../../common/logger';
+import { logger } from '../logger';
 
 let receiver: Receiver | null = null;
 let client: Client | null = null;

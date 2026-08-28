@@ -24,19 +24,9 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
-      redis:
-        image: redis:7-alpine
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
       NODE_ENV: test
       DATABASE_URL: postgresql://myday:myday@localhost:5433/myday_test?schema=public
-      REDIS_URL: redis://localhost:6379/2
       JWT_ACCESS_SECRET: ci-access-secret-please-32-characters-min
       LOG_LEVEL: silent
 

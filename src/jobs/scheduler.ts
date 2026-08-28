@@ -1,24 +1,31 @@
-import { getScheduleProcessingQueue } from './queues';
 import { logger } from '../common/logger';
+import { getApiBaseUrl, getQStashClient, isQStashPublishingConfigured } from '../common/qstash/qstash.util';
 
-/** Registers repeatable jobs. Safe to call on every boot: BullMQ dedupes by repeat key. */
-export async function registerRepeatableJobs(): Promise<void> {
-  const queue = getScheduleProcessingQueue();
-  await queue.add(
-    'reconcile-all-users',
-    {},
-    {
-      jobId: 'reconcile-all-users-repeatable',
-      // Materializes today's occurrences and sweeps expired PLANNED logs to MISSED — neither
-      // needs sub-5-minute precision. Reminders themselves still fire exactly on time regardless
-      // of this interval, since BullMQ delivers each one via its own per-job delay, not by this
-      // sweep noticing it. This ran every 2 minutes, 24/7, which on a metered Redis plan (see
-      // notification-scheduler.ts's churn comment) was a meaningful fixed cost on its own, on
-      // top of the per-occurrence work it triggered.
-      repeat: { every: 10 * 60 * 1000 },
-      removeOnComplete: true,
-      removeOnFail: true,
-    },
-  );
-  logger.info('Registered repeatable schedule-processing job (every 10 minutes)');
+const RECONCILE_SCHEDULE_ID = 'reconcile-all-users';
+
+/**
+ * Registers the recurring schedule-reconciliation job with QStash (materializes today's
+ * occurrences, sweeps expired PLANNED logs to MISSED — see reconcile.service.ts). Safe to call
+ * on every boot: passing the same scheduleId updates the existing schedule in place instead of
+ * creating a duplicate one alongside it.
+ *
+ * A silent no-op when QStash isn't configured (local dev — API_BASE_URL is deliberately unset
+ * there, since QStash cannot reach localhost, see qstash.util.ts): local dev simply doesn't get
+ * schedule reconciliation, same as reminder scheduling in that environment.
+ */
+export async function registerReconcileSchedule(): Promise<void> {
+  const baseUrl = getApiBaseUrl();
+  if (!isQStashPublishingConfigured() || !baseUrl) {
+    logger.debug('Skipping schedule-reconciliation registration — QStash is not configured in this environment');
+    return;
+  }
+
+  await getQStashClient().schedules.create({
+    scheduleId: RECONCILE_SCHEDULE_ID,
+    destination: `${baseUrl}/qstash/reconcile`,
+    cron: '*/10 * * * *',
+    retries: 3,
+  });
+
+  logger.info('Registered schedule-reconciliation job with QStash (every 10 minutes)');
 }

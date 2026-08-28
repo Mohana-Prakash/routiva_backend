@@ -301,8 +301,8 @@ model NotificationJob {
   status          NotificationJobStatus @default(SCHEDULED)
   failureReason   String?               @map("failure_reason")
   attempts        Int                   @default(0)
-  // Set only when this job was scheduled via QStash rather than BullMQ — lets us delete the
-  // still-queued QStash message on cancel/reschedule instead of leaving it to fire and no-op.
+  // Lets us delete the still-queued QStash message on cancel/reschedule instead of leaving it
+  // to fire and no-op.
   qstashMessageId String?               @map("qstash_message_id")
   createdAt       DateTime              @default(now()) @map("created_at")
   updatedAt       DateTime              @updatedAt @map("updated_at")

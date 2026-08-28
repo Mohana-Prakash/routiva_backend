@@ -4,7 +4,7 @@ import { logger } from '../../common/logger';
 import { sendSuccess } from '../../common/utils/response';
 import { notificationsRepository } from './notifications.repository';
 import { deliverReminder } from './reminder-delivery';
-import { getApiBaseUrl, getQStashClient, isQStashPublishingConfigured, verifyQStashSignature } from './qstash.util';
+import { getApiBaseUrl, getQStashClient, isQStashPublishingConfigured, verifyQStashSignature } from '../../common/qstash/qstash.util';
 import { reminderDeliverSchema, type QStashTestTriggerInput } from './qstash.validation';
 
 /** Matches the `retries` set when publishing in notification-scheduler.ts's

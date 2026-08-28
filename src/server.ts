@@ -3,24 +3,18 @@ import { createApp } from './app';
 import { env } from './config/env';
 import { logger } from './common/logger';
 import { prisma, disconnectPrisma } from './db/prisma';
-import { disconnectRedis, getRedisClient } from './db/redis';
-import { registerRepeatableJobs } from './jobs/scheduler';
-import { closeQueues } from './jobs/queues';
-import { startScheduleProcessingWorker } from './jobs/workers/scheduleProcessingWorker';
+import { registerReconcileSchedule } from './jobs/scheduler';
 
 async function main() {
   await prisma.$connect();
-  getRedisClient();
-  await registerRepeatableJobs();
+  await registerReconcileSchedule();
 
-  // Runs the schedule-reconciliation worker in this same process instead of a separate
-  // service — this app runs at a scale (single user) where a dedicated worker instance is
-  // pure cost with no benefit. Reminder delivery no longer runs on a worker at all — QStash
-  // calls the API directly (notification-scheduler.ts, qstash.controller.ts).
+  // Schedule reconciliation and reminder delivery both run via QStash calling this API
+  // directly — no in-process worker, no separate service (see jobs/scheduler.ts,
+  // notification-scheduler.ts, and the qstash-* controllers under modules/).
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) {
     logger.warn('VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY are not set — every push notification will fail to send');
   }
-  const scheduleProcessingWorker = startScheduleProcessingWorker();
 
   const app = createApp();
   const server = app.listen(env.PORT, () => {
@@ -38,10 +32,7 @@ async function main() {
         logger.error({ err }, 'Error while closing HTTP server');
       }
       try {
-        await scheduleProcessingWorker.close();
-        await closeQueues();
         await disconnectPrisma();
-        await disconnectRedis();
         logger.info('Shutdown complete');
         process.exit(err ? 1 : 0);
       } catch (shutdownErr) {

@@ -7,7 +7,7 @@ const mockMessagesDelete = jest.fn();
 const mockIsQStashPublishingConfigured = jest.fn(() => true);
 const mockGetApiBaseUrl = jest.fn(() => 'https://api.example.test');
 
-jest.mock('../../src/modules/notifications/qstash.util', () => ({
+jest.mock('../../src/common/qstash/qstash.util', () => ({
   isQStashPublishingConfigured: () => mockIsQStashPublishingConfigured(),
   getApiBaseUrl: () => mockGetApiBaseUrl(),
   getQStashClient: () => ({

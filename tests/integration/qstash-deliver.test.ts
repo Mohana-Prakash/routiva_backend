@@ -72,10 +72,9 @@ async function setupTodayLog(user: TestUser) {
   return today.body.data.items[0].activityLog.id as string;
 }
 
-/** Seeds a SCHEDULED NotificationJob directly — the scheduling side (which mechanism, BullMQ
- *  vs QStash, actually creates this row) is covered separately by
- *  tests/unit/notification-scheduler.qstash.test.ts; this file is only about what happens once
- *  QStash calls the delivery callback for one. */
+/** Seeds a SCHEDULED NotificationJob directly — the scheduling side (which creates this row)
+ *  is covered separately by tests/unit/notification-scheduler.qstash.test.ts; this file is
+ *  only about what happens once QStash calls the delivery callback for one. */
 async function seedNotificationJob(user: TestUser, activityLogId: string, overrides: Partial<{ kind: string }> = {}) {
   const job = await prisma.notificationJob.create({
     data: {

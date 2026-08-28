@@ -7,6 +7,7 @@ import { schedulesRouter } from '../modules/schedules/schedules.routes';
 import { trackingRouter } from '../modules/tracking/tracking.routes';
 import { notificationsRouter } from '../modules/notifications/notifications.routes';
 import { qstashRouter } from '../modules/notifications/qstash.routes';
+import { qstashReconcileRouter } from '../modules/schedules/qstash-reconcile.routes';
 import { reportsRouter } from '../modules/reports/reports.routes';
 import { generalRateLimiter } from '../common/middleware/rateLimit';
 
@@ -27,4 +28,5 @@ apiRouter.use('/activity-logs', trackingRouter);
 // request before it ever reaches qstashRouter.
 apiRouter.use('/notifications/qstash', qstashRouter);
 apiRouter.use('/notifications', notificationsRouter);
+apiRouter.use('/qstash', qstashReconcileRouter);
 apiRouter.use('/reports', reportsRouter);

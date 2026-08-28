@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon';
 import { logger } from '../../common/logger';
 import { notificationsRepository } from './notifications.repository';
-import { getApiBaseUrl, getQStashClient, isQStashPublishingConfigured } from './qstash.util';
+import { getApiBaseUrl, getQStashClient, isQStashPublishingConfigured } from '../../common/qstash/qstash.util';
 import type { ReminderPayload } from './reminder-delivery';
 import type { RenderedOccurrence } from '../schedules/schedules.types';
 
