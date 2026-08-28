@@ -50,10 +50,10 @@ describe('Auth', () => {
     expect(bad.body.error.code).toBe('INVALID_CREDENTIALS');
   });
 
-  it('rejects login for an unknown account with the same error as wrong password (no enumeration)', async () => {
+  it('rejects login for an unknown account with a distinct error from wrong password', async () => {
     const res = await request(app).post('/api/v1/auth/login').send({ email: 'nobody@example.com', password: 'Passw0rd1' });
     expect(res.status).toBe(401);
-    expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+    expect(res.body.error.code).toBe('EMAIL_NOT_FOUND');
   });
 
   it('rejects access to a protected route without a token', async () => {

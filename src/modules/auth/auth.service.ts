@@ -81,6 +81,11 @@ export const authService = {
   async login(input: LoginInput, meta: RequestMeta) {
     const user = await authRepository.findUserByEmail(input.email);
 
+    // Still runs against a dummy hash when there's no user, so a missing-email response takes
+    // the same time as a wrong-password one — this app deliberately distinguishes the two in
+    // its error code/message (a personal, single-user app, so the usual enumeration concern
+    // that pattern exists to prevent doesn't apply here), but there's no reason to give that up
+    // for free via a timing side-channel too.
     const isValid = await verifyPassword(user?.passwordHash ?? DUMMY_HASH, input.password);
 
     if (!user || !isValid) {
@@ -90,7 +95,7 @@ export const authService = {
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
       });
-      throw AppError.invalidCredentials();
+      throw user ? AppError.invalidCredentials() : AppError.emailNotFound();
     }
 
     if (user.status === 'SUSPENDED') {

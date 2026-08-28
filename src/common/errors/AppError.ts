@@ -27,6 +27,10 @@ export class AppError extends Error {
     return new AppError(401, ErrorCode.INVALID_CREDENTIALS, message);
   }
 
+  static emailNotFound(message = 'No account exists for this email'): AppError {
+    return new AppError(401, ErrorCode.EMAIL_NOT_FOUND, message);
+  }
+
   static sessionExpired(message = 'Session expired'): AppError {
     return new AppError(401, ErrorCode.SESSION_EXPIRED, message);
   }
