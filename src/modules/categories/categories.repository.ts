@@ -17,6 +17,10 @@ export const categoriesRepository = {
     return prisma.category.findFirst({ where: { userId, name } });
   },
 
+  findByColorForUser(color: string, userId: string) {
+    return prisma.category.findFirst({ where: { userId, color } });
+  },
+
   create(userId: string, data: CreateCategoryInput) {
     return prisma.category.create({ data: { ...data, userId } });
   },

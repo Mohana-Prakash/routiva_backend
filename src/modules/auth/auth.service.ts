@@ -23,6 +23,23 @@ interface AuthTokens {
 // mitigating trivial timing-based account enumeration.
 const DUMMY_HASH = '$argon2id$v=19$m=65536,t=3,p=4$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
+// The app has two independent places that can each notice an expired access token and try to
+// refresh it: the main page's axios interceptor, and the notification-action service worker
+// handler (worker/index.js), which fetches its own refresh directly rather than sharing the
+// page's in-memory dedup. When both fire within moments of each other — e.g. a notification
+// action is tapped right as the open tab also wakes from being backgrounded — they can both
+// read the same not-yet-rotated refresh cookie and race the server. The loser presents a token
+// the winner just revoked and looks identical to token theft. A short grace window treats a
+// same-token replay this soon after its own rotation as that benign race rather than reuse, so
+// it re-issues fresh tokens instead of nuking the whole session family and forcing a real logout.
+//
+// This must NOT fire for a real logout (which also just sets revokedAt): a stale tab replaying
+// its cookie seconds after the user logged out elsewhere should stay logged out. So the grace
+// window only applies when, in addition to being recent, another active session already exists
+// in the family — i.e. someone genuinely won the rotation race, as opposed to nothing replacing
+// this session at all.
+const REFRESH_REUSE_GRACE_MS = 15_000;
+
 function toPublicUser(user: { id: string; name: string; email: string; timezone: string; status: string; createdAt: Date }) {
   return {
     id: user.id,
@@ -126,6 +143,18 @@ export const authService = {
     }
 
     if (session.revokedAt) {
+      const withinGrace = Date.now() - session.revokedAt.getTime() < REFRESH_REUSE_GRACE_MS;
+      if (withinGrace && (await authRepository.hasActiveSessionInFamily(session.familyId, session.id))) {
+        // See REFRESH_REUSE_GRACE_MS above — likely the app's two independent refresh paths
+        // racing each other rather than a stolen token, so recover silently instead of logging
+        // the user out.
+        const user = await authRepository.findUserById(session.userId);
+        if (user && user.status === 'ACTIVE') {
+          const tokens = await issueTokens(user.id, meta, session.familyId);
+          return { user: toPublicUser(user), tokens };
+        }
+      }
+
       // Presenting an already-rotated/revoked refresh token indicates possible token theft.
       // Defensively revoke the entire session family.
       await authRepository.revokeRefreshSessionFamily(session.familyId);

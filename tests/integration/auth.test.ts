@@ -62,7 +62,7 @@ describe('Auth', () => {
     expect(res.body.error.code).toBe('AUTH_REQUIRED');
   });
 
-  it('refreshes a session and rotates the refresh token, detecting reuse of the old one', async () => {
+  it('refreshes a session and rotates the refresh token', async () => {
     await request(app).post('/api/v1/auth/register').send(credentials).expect(201);
     const login = await request(app).post('/api/v1/auth/login').send({ email: credentials.email, password: credentials.password });
     const cookie = getSetCookie(login);
@@ -71,10 +71,41 @@ describe('Auth', () => {
     expect(refreshed.status).toBe(200);
     // Note: access tokens may be byte-identical to the original if issued within the same
     // second (JWT `iat` has second granularity) — that's expected, not a bug. The refresh
-    // *session* rotating is what matters, verified below by reuse detection on the old cookie.
+    // *session* rotating is what matters.
     expect(refreshed.headers['set-cookie']).toBeDefined();
+  });
 
-    // Reusing the original (now-rotated-out) refresh cookie must be rejected.
+  it('treats near-simultaneous reuse of a just-rotated token as a benign race, not theft', async () => {
+    // The app has two independent places that can refresh (the page and the notification
+    // service worker — see auth.service.ts's REFRESH_REUSE_GRACE_MS comment), so both can
+    // legitimately present the same not-yet-rotated cookie moments apart.
+    await request(app).post('/api/v1/auth/register').send(credentials).expect(201);
+    const login = await request(app).post('/api/v1/auth/login').send({ email: credentials.email, password: credentials.password });
+    const cookie = getSetCookie(login);
+
+    await request(app).post('/api/v1/auth/refresh').set('Cookie', cookie).expect(200);
+
+    // A second, near-simultaneous refresh with the same now-rotated-out cookie should recover
+    // silently rather than nuke the session, since a genuine successor session already exists.
+    const raced = await request(app).post('/api/v1/auth/refresh').set('Cookie', cookie);
+    expect(raced.status).toBe(200);
+    expect(raced.headers['set-cookie']).toBeDefined();
+
+    const me = await request(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${raced.body.data.accessToken}`);
+    expect(me.status).toBe(200);
+  });
+
+  it('detects real reuse of an orphaned refresh token as theft', async () => {
+    // If the token's successor session is no longer active (e.g. it was itself logged out, or
+    // this is a genuinely stale/stolen token with no legitimate session left in its family),
+    // reuse must still be rejected even though it's within the race-tolerance window.
+    await request(app).post('/api/v1/auth/register').send(credentials).expect(201);
+    const login = await request(app).post('/api/v1/auth/login').send({ email: credentials.email, password: credentials.password });
+    const cookie = getSetCookie(login);
+
+    const rotated = await request(app).post('/api/v1/auth/refresh').set('Cookie', cookie).expect(200);
+    await request(app).post('/api/v1/auth/logout').set('Cookie', getSetCookie(rotated)).expect(200);
+
     const reused = await request(app).post('/api/v1/auth/refresh').set('Cookie', cookie);
     expect(reused.status).toBe(401);
     expect(reused.body.error.code).toBe('SESSION_REVOKED');

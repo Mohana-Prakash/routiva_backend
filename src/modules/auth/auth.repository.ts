@@ -41,6 +41,15 @@ export const authRepository = {
     return prisma.refreshSession.update({ where: { id }, data: { revokedAt: new Date() } });
   },
 
+  hasActiveSessionInFamily(familyId: string, excludeId: string) {
+    return prisma.refreshSession
+      .findFirst({
+        where: { familyId, id: { not: excludeId }, revokedAt: null, expiresAt: { gt: new Date() } },
+        select: { id: true },
+      })
+      .then((row) => row !== null);
+  },
+
   revokeRefreshSessionFamily(familyId: string) {
     return prisma.refreshSession.updateMany({
       where: { familyId, revokedAt: null },

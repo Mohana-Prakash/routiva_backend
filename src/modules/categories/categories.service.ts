@@ -19,6 +19,12 @@ export const categoriesService = {
     if (existing) {
       throw AppError.duplicate('A category with this name already exists');
     }
+    if (input.color) {
+      const colorTaken = await categoriesRepository.findByColorForUser(input.color, userId);
+      if (colorTaken) {
+        throw AppError.duplicate('That color is already used by another category — pick a different one');
+      }
+    }
     return categoriesRepository.create(userId, input);
   },
 
@@ -37,6 +43,13 @@ export const categoriesService = {
       const existing = await categoriesRepository.findByNameForUser(input.name, userId);
       if (existing && existing.id !== id) {
         throw AppError.duplicate('A category with this name already exists');
+      }
+    }
+
+    if (input.color) {
+      const colorTaken = await categoriesRepository.findByColorForUser(input.color, userId);
+      if (colorTaken && colorTaken.id !== id) {
+        throw AppError.duplicate('That color is already used by another category — pick a different one');
       }
     }
 
