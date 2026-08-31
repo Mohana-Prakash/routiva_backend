@@ -13,15 +13,19 @@ export interface ReminderPayload {
   kind: 'pre-reminder' | 'timed-actionable' | 'timeless-actionable' | 'end-check';
   /** Action keys the service worker renders as notification buttons (worker/index.js). */
   actions: ('start' | 'complete' | 'skip' | 'close')[];
+  /** The occurrence's planned start time, "HH:mm" in the user's own timezone (already resolved
+   * at schedule time — see notification-scheduler.ts) — shown in the notification body so it's
+   * clear which slot this is about without opening the app. Absent for timeless-actionable,
+   * which has no fixed start time. */
+  startTime?: string;
 }
 
 const KIND_COPY: Record<
-  Exclude<ReminderPayload['kind'], 'end-check'>,
-  (activityName: string) => { title: string; body: string }
+  Exclude<ReminderPayload['kind'], 'end-check' | 'timeless-actionable'>,
+  (activityName: string, startTime: string) => { title: string; body: string }
 > = {
-  'pre-reminder': (activityName) => ({ title: 'Coming up', body: `${activityName} starts soon` }),
-  'timed-actionable': (activityName) => ({ title: activityName, body: "It's time — start or skip." }),
-  'timeless-actionable': (activityName) => ({ title: activityName, body: 'Anytime today — mark it complete or close it out.' }),
+  'pre-reminder': (activityName, startTime) => ({ title: 'Coming up', body: `${activityName} starts at ${startTime}` }),
+  'timed-actionable': (activityName, startTime) => ({ title: activityName, body: `Scheduled for ${startTime} — start or skip.` }),
 };
 
 /**
@@ -35,21 +39,23 @@ const KIND_COPY: Record<
 async function buildEndCheckNotification(
   activityLogId: string,
   activityName: string,
+  startTime: string | undefined,
 ): Promise<{ title: string; body: string; actions: ReminderPayload['actions'] } | null> {
   const log = await prisma.activityLog.findUnique({ where: { id: activityLogId } });
   if (!log) return null;
 
+  const at = startTime ? ` (${startTime})` : '';
   switch (log.status) {
     case 'IN_PROGRESS':
-      return { title: activityName, body: "Time's up — mark it complete when you're done.", actions: ['complete'] };
+      return { title: activityName, body: `Time's up${at} — mark it complete when you're done.`, actions: ['complete'] };
     case 'PLANNED':
       // Still genuinely unresolved (the MISSED sweep hasn't caught up to this yet) — Skip is
       // still a meaningful, honest answer here.
-      return { title: activityName, body: 'Did you get to this? Complete it or skip it.', actions: ['complete', 'skip'] };
+      return { title: activityName, body: `Did you get to this${at}? Complete it or skip it.`, actions: ['complete', 'skip'] };
     case 'MISSED':
       // Already the system's own "not done" label — Skip would just re-say that, so only
       // Complete (if it actually happened elsewhere) is offered.
-      return { title: activityName, body: 'Did you get to this? Mark it complete if so.', actions: ['complete'] };
+      return { title: activityName, body: `Did you get to this${at}? Mark it complete if so.`, actions: ['complete'] };
     default:
       // COMPLETED / SKIPPED / CANCELLED / ADJUSTED — already resolved, nothing to nudge about.
       return null;
@@ -71,7 +77,7 @@ async function buildEndCheckNotification(
  * terminal and already recorded in the database before this returns.
  */
 export async function deliverReminder(payload: ReminderPayload): Promise<void> {
-  const { notificationJobId, userId, activityName, kind, actions } = payload;
+  const { notificationJobId, userId, activityName, kind, actions, startTime } = payload;
 
   const notificationJob = await prisma.notificationJob.findUnique({ where: { id: notificationJobId } });
   if (!notificationJob || notificationJob.status !== 'SCHEDULED') {
@@ -81,8 +87,10 @@ export async function deliverReminder(payload: ReminderPayload): Promise<void> {
 
   const copy =
     kind === 'end-check'
-      ? await buildEndCheckNotification(payload.activityLogId, activityName)
-      : { ...KIND_COPY[kind](activityName), actions: actions ?? [] };
+      ? await buildEndCheckNotification(payload.activityLogId, activityName, startTime)
+      : kind === 'timeless-actionable'
+        ? { title: activityName, body: 'Anytime today — mark it complete or close it out.', actions: actions ?? [] }
+        : { ...KIND_COPY[kind](activityName, startTime ?? ''), actions: actions ?? [] };
 
   if (!copy) {
     // end-check found nothing worth saying (already resolved) — this stage is done.

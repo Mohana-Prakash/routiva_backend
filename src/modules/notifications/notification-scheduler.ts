@@ -194,6 +194,13 @@ async function scheduleStage(
     activityName: occurrence.activityName,
     kind: stage.kind,
     actions: stage.actions,
+    // Resolved once, here, rather than at delivery time — the notification should always show
+    // the time the occurrence was actually scheduled for, not whatever the user's timezone
+    // happens to be by the time this fires (which is the same anyway in practice, but this way
+    // it's not implicitly relying on that).
+    startTime: occurrence.plannedStartUtc
+      ? DateTime.fromJSDate(occurrence.plannedStartUtc).setZone(timezone).toFormat('HH:mm')
+      : undefined,
   };
 
   await scheduleStageViaQStash(jobKey, notifyAt, payload);

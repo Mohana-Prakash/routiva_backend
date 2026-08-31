@@ -110,6 +110,47 @@ describe('scheduleOrUpdateReminder (QStash path)', () => {
     expect(mockSetQStashMessageId).toHaveBeenCalledWith('job-1', 'msg-abc');
   });
 
+  it("includes the occurrence's planned start time, formatted HH:mm in the target timezone, in the published payload", async () => {
+    mockFindJobByKey.mockResolvedValue(null);
+    mockUpsertJob.mockResolvedValue({ id: 'job-1' });
+    mockPublishJSON.mockResolvedValue({ messageId: 'msg-abc' });
+
+    // Relative to "now" (like makeOccurrence's own default) so this doesn't depend on when the
+    // suite happens to run. Asia/Kolkata (UTC+5:30) specifically, to prove this actually applies
+    // the passed-in timezone rather than just echoing UTC wall-clock digits.
+    const startUtc = DateTime.utc().plus({ hours: 1 });
+    const expectedLocal = startUtc.setZone('Asia/Kolkata').toFormat('HH:mm');
+    const occurrence = makeOccurrence({
+      plannedStartUtc: startUtc.toJSDate(),
+      plannedEndUtc: null, // isolate to the one 'timed-actionable' publish
+    });
+
+    await scheduleOrUpdateReminder('user-1', 'Asia/Kolkata', occurrence, 'log-1');
+
+    expect(mockPublishJSON).toHaveBeenCalledTimes(1);
+    const [[{ body }]] = mockPublishJSON.mock.calls;
+    expect(body.startTime).toBe(expectedLocal);
+  });
+
+  it('omits startTime for a timeless occurrence (no plannedStartUtc)', async () => {
+    mockFindJobByKey.mockResolvedValue(null);
+    mockUpsertJob.mockResolvedValue({ id: 'job-1' });
+    mockPublishJSON.mockResolvedValue({ messageId: 'msg-abc' });
+
+    const occurrence = makeOccurrence({
+      plannedStartUtc: null,
+      plannedEndUtc: null,
+      reminderAtUtc: DateTime.utc().plus({ hours: 1 }).toJSDate(),
+    });
+
+    await scheduleOrUpdateReminder('user-1', 'UTC', occurrence, 'log-1');
+
+    expect(mockPublishJSON).toHaveBeenCalledTimes(1);
+    const [[{ body }]] = mockPublishJSON.mock.calls;
+    expect(body.kind).toBe('timeless-actionable');
+    expect(body.startTime).toBeUndefined();
+  });
+
   it('skips republishing when the target time is unchanged and the QStash message still exists', async () => {
     const occurrence = { ...makeOccurrence(), plannedEndUtc: null }; // drop end-check, isolate to one stage
 

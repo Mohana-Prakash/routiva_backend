@@ -28,6 +28,10 @@ export const reminderDeliverSchema = z
     activityName: z.string().min(1),
     kind: z.enum(['pre-reminder', 'timed-actionable', 'timeless-actionable', 'end-check']),
     actions: z.array(z.enum(['start', 'complete', 'skip', 'close'])),
+    startTime: z
+      .string()
+      .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'startTime must be "HH:mm"')
+      .optional(),
   })
   .strict();
 
