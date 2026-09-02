@@ -37,6 +37,11 @@ export const trackingController = {
     sendSuccess(res, toActivityLogDto(log));
   },
 
+  async markMissed(req: Request, res: Response) {
+    const log = await trackingService.markMissed(req.params.id as string, req.userId as string);
+    sendSuccess(res, toActivityLogDto(log));
+  },
+
   async correct(req: Request, res: Response) {
     const log = await trackingService.correct(req.params.id as string, req.userId as string, req.body as CorrectLogInput);
     sendSuccess(res, toActivityLogDto(log));

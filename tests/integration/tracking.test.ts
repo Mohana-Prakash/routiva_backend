@@ -149,4 +149,31 @@ describe('Activity tracking', () => {
     const stillInProgress = await request(app).get(`/api/v1/activity-logs/${logId}`).set(authHeader(user)).expect(200);
     expect(stillInProgress.body.data.status).toBe('IN_PROGRESS');
   });
+
+  it('marks an abandoned in-progress activity as missed once its window has closed', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+    await request(app).post(`/api/v1/activity-logs/${logId}/start`).set(authHeader(user)).expect(200);
+    await prisma.activityLog.update({ where: { id: logId }, data: { plannedEnd: new Date(Date.now() - 60_000) } });
+
+    const res = await request(app).post(`/api/v1/activity-logs/${logId}/miss`).set(authHeader(user)).expect(200);
+    expect(res.body.data.status).toBe('MISSED');
+  });
+
+  it('rejects marking an in-progress activity as missed while its window is still open', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+    await request(app).post(`/api/v1/activity-logs/${logId}/start`).set(authHeader(user)).expect(200);
+
+    const res = await request(app).post(`/api/v1/activity-logs/${logId}/miss`).set(authHeader(user));
+    expect(res.status).toBe(422);
+  });
+
+  it('rejects marking a never-started (PLANNED) activity as missed — that is the sweep\'s job', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+
+    const res = await request(app).post(`/api/v1/activity-logs/${logId}/miss`).set(authHeader(user));
+    expect(res.status).toBe(422);
+  });
 });

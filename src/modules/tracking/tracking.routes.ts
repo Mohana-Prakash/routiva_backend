@@ -25,6 +25,7 @@ trackingRouter.post(
   asyncHandler(trackingController.complete),
 );
 trackingRouter.post('/:id/skip', validate({ params: logIdParamSchema }), asyncHandler(trackingController.skip));
+trackingRouter.post('/:id/miss', validate({ params: logIdParamSchema }), asyncHandler(trackingController.markMissed));
 trackingRouter.patch(
   '/:id',
   validate({ params: logIdParamSchema, body: correctLogSchema }),

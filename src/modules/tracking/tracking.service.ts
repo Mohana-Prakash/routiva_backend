@@ -113,11 +113,12 @@ export const trackingService = {
 
     // Once actually started, skipping after the planned window has closed is meaningless —
     // the user engaged with it, so the only honest options left are Complete (say how long
-    // they actually spent) or leaving it as is. MISSED is excluded entirely: it's already the
-    // system's own "window passed, no action taken" label, so re-labeling it Skipped adds
-    // nothing — Complete (if it actually happened elsewhere) is the only meaningful action left.
+    // they actually spent) or markMissed (say it didn't actually happen). MISSED is excluded
+    // entirely: it's already the system's own "window passed, no action taken" label, so
+    // re-labeling it Skipped adds nothing — Complete (if it actually happened elsewhere) is
+    // the only meaningful action left.
     if (log.status === LogStatus.IN_PROGRESS && log.plannedEnd && log.plannedEnd.getTime() < Date.now()) {
-      throw AppError.invalidState('Cannot skip an activity that has already started and is past its scheduled end — complete it instead');
+      throw AppError.invalidState('Cannot skip an activity that has already started and is past its scheduled end — complete or mark it missed instead');
     }
 
     const result = await trackingRepository.transitionStatus(
@@ -137,6 +138,44 @@ export const trackingService = {
 
     // Now resolved — any reminder still queued for it (e.g. the end-of-window "did you do
     // this?" check) would otherwise still fire and ask about something already handled.
+    await cancelRemindersForActivityLogs([id]);
+
+    return trackingService.getOwned(id, userId);
+  },
+
+  /**
+   * The reconciliation sweep (reconcile.service.ts) only ever auto-flips an expired PLANNED
+   * log to MISSED — it deliberately never touches IN_PROGRESS, since the system shouldn't
+   * assume an activity that was actually started just didn't happen. That leaves a real gap:
+   * something started and then abandoned past its window has no route to MISSED at all, only
+   * Complete — which forces a dishonest "yes I did this" for something that in fact wasn't
+   * finished. This gives the user that missing option explicitly, once the window has closed.
+   */
+  async markMissed(id: string, userId: string) {
+    const log = await trackingService.getOwned(id, userId);
+
+    if (log.status !== LogStatus.IN_PROGRESS) {
+      throw AppError.invalidState(`Cannot mark an activity log with status ${log.status} as missed`);
+    }
+    if (!log.plannedEnd || log.plannedEnd.getTime() >= Date.now()) {
+      throw AppError.invalidState('Cannot mark as missed before the scheduled window has closed — complete or skip it instead');
+    }
+
+    const result = await trackingRepository.transitionStatus(
+      id,
+      userId,
+      [LogStatus.IN_PROGRESS],
+      { status: LogStatus.MISSED },
+    );
+
+    if (result.count === 0) {
+      const current = await trackingService.getOwned(id, userId);
+      if (current.status === LogStatus.MISSED) {
+        return current;
+      }
+      throw AppError.invalidState(`Cannot mark an activity log with status ${current.status} as missed`);
+    }
+
     await cancelRemindersForActivityLogs([id]);
 
     return trackingService.getOwned(id, userId);
