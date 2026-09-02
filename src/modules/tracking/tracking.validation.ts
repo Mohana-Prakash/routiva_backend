@@ -43,6 +43,23 @@ export const completeLogSchema = z
     message: 'Provide both actualStart and actualEnd, or neither',
   });
 
+// Correcting an already-resolved log to a different resolved outcome (e.g. tapped Complete by
+// mistake, meant Skip). Only ever moves between COMPLETED/SKIPPED/MISSED — never touches
+// PLANNED/IN_PROGRESS, which have their own dedicated start/skip/complete actions.
+export const reclassifyLogSchema = z
+  .object({
+    status: z.enum(['COMPLETED', 'SKIPPED', 'MISSED']),
+    actualStart: z.string().datetime().optional(),
+    actualEnd: z.string().datetime().optional(),
+  })
+  .strict()
+  .refine((v) => (!!v.actualStart) === (!!v.actualEnd), {
+    message: 'Provide both actualStart and actualEnd, or neither',
+  })
+  .refine((v) => v.status === 'COMPLETED' || (!v.actualStart && !v.actualEnd), {
+    message: 'actualStart/actualEnd only apply when status is COMPLETED',
+  });
+
 export const dailySummaryQuerySchema = z
   .object({
     date: dateString.optional(),
@@ -52,3 +69,4 @@ export const dailySummaryQuerySchema = z
 export type ListLogsQuery = z.infer<typeof listLogsQuerySchema>;
 export type CorrectLogInput = z.infer<typeof correctLogSchema>;
 export type CompleteLogInput = z.infer<typeof completeLogSchema>;
+export type ReclassifyLogInput = z.infer<typeof reclassifyLogSchema>;

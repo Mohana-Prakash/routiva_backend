@@ -177,3 +177,82 @@ describe('Activity tracking', () => {
     expect(res.status).toBe(422);
   });
 });
+
+describe('Reclassifying an already-resolved activity log', () => {
+  it('correcting Completed to Skipped clears the actual minutes and completedAt', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+    await request(app).post(`/api/v1/activity-logs/${logId}/complete`).set(authHeader(user)).expect(200);
+
+    const res = await request(app)
+      .patch(`/api/v1/activity-logs/${logId}/status`)
+      .set(authHeader(user))
+      .send({ status: 'SKIPPED' })
+      .expect(200);
+
+    expect(res.body.data.status).toBe('SKIPPED');
+    expect(res.body.data.actualStart).toBeNull();
+    expect(res.body.data.actualEnd).toBeNull();
+    expect(res.body.data.completedAt).toBeNull();
+  });
+
+  it('correcting Skipped to Completed with explicit actuals uses them', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+    await request(app).post(`/api/v1/activity-logs/${logId}/skip`).set(authHeader(user)).expect(200);
+
+    const actualStart = new Date(Date.now() - 15 * 60_000).toISOString();
+    const actualEnd = new Date().toISOString();
+    const res = await request(app)
+      .patch(`/api/v1/activity-logs/${logId}/status`)
+      .set(authHeader(user))
+      .send({ status: 'COMPLETED', actualStart, actualEnd })
+      .expect(200);
+
+    expect(res.body.data.status).toBe('COMPLETED');
+    expect(res.body.data.actualStart).toBe(actualStart);
+    expect(res.body.data.actualEnd).toBe(actualEnd);
+    expect(res.body.data.completedAt).not.toBeNull();
+  });
+
+  it('correcting Skipped to Completed without actuals falls back to the planned window', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+    await request(app).post(`/api/v1/activity-logs/${logId}/skip`).set(authHeader(user)).expect(200);
+
+    const res = await request(app)
+      .patch(`/api/v1/activity-logs/${logId}/status`)
+      .set(authHeader(user))
+      .send({ status: 'COMPLETED' })
+      .expect(200);
+
+    expect(res.body.data.status).toBe('COMPLETED');
+    expect(res.body.data.actualStart).not.toBeNull();
+    expect(res.body.data.actualEnd).not.toBeNull();
+  });
+
+  it('rejects reclassifying a still-live (PLANNED/IN_PROGRESS) log — use start/complete/skip instead', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+
+    const res = await request(app)
+      .patch(`/api/v1/activity-logs/${logId}/status`)
+      .set(authHeader(user))
+      .send({ status: 'SKIPPED' });
+
+    expect(res.status).toBe(422);
+  });
+
+  it('rejects actualStart/actualEnd on a non-Completed target', async () => {
+    const user = await registerAndLogin();
+    const logId = await setupTodayLog(user);
+    await request(app).post(`/api/v1/activity-logs/${logId}/complete`).set(authHeader(user)).expect(200);
+
+    const res = await request(app)
+      .patch(`/api/v1/activity-logs/${logId}/status`)
+      .set(authHeader(user))
+      .send({ status: 'SKIPPED', actualStart: new Date().toISOString(), actualEnd: new Date().toISOString() });
+
+    expect(res.status).toBe(400);
+  });
+});

@@ -3,7 +3,7 @@ import { sendSuccess } from '../../common/utils/response';
 import { trackingService } from './tracking.service';
 import { toActivityLogDto } from './tracking.mapper';
 import { todayInTimezone } from '../../common/utils/time';
-import type { CompleteLogInput, CorrectLogInput, ListLogsQuery } from './tracking.validation';
+import type { CompleteLogInput, CorrectLogInput, ListLogsQuery, ReclassifyLogInput } from './tracking.validation';
 
 export const trackingController = {
   async list(req: Request, res: Response) {
@@ -39,6 +39,11 @@ export const trackingController = {
 
   async markMissed(req: Request, res: Response) {
     const log = await trackingService.markMissed(req.params.id as string, req.userId as string);
+    sendSuccess(res, toActivityLogDto(log));
+  },
+
+  async reclassify(req: Request, res: Response) {
+    const log = await trackingService.reclassify(req.params.id as string, req.userId as string, req.body as ReclassifyLogInput);
     sendSuccess(res, toActivityLogDto(log));
   },
 

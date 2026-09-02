@@ -9,6 +9,7 @@ import {
   dailySummaryQuerySchema,
   listLogsQuerySchema,
   logIdParamSchema,
+  reclassifyLogSchema,
 } from './tracking.validation';
 
 export const trackingRouter = Router();
@@ -30,4 +31,9 @@ trackingRouter.patch(
   '/:id',
   validate({ params: logIdParamSchema, body: correctLogSchema }),
   asyncHandler(trackingController.correct),
+);
+trackingRouter.patch(
+  '/:id/status',
+  validate({ params: logIdParamSchema, body: reclassifyLogSchema }),
+  asyncHandler(trackingController.reclassify),
 );

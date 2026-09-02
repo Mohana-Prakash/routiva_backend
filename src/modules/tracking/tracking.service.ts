@@ -3,7 +3,9 @@ import { DateTime } from 'luxon';
 import { AppError } from '../../common/errors/AppError';
 import { trackingRepository } from './tracking.repository';
 import { cancelRemindersForActivityLogs } from '../notifications/notification-scheduler';
-import type { CompleteLogInput, CorrectLogInput, ListLogsQuery } from './tracking.validation';
+import type { CompleteLogInput, CorrectLogInput, ListLogsQuery, ReclassifyLogInput } from './tracking.validation';
+
+const RESOLVED_STATUSES: LogStatus[] = [LogStatus.COMPLETED, LogStatus.SKIPPED, LogStatus.MISSED, LogStatus.ADJUSTED];
 
 const MAX_ACTUAL_DURATION_MINUTES = 24 * 60;
 
@@ -179,6 +181,53 @@ export const trackingService = {
     await cancelRemindersForActivityLogs([id]);
 
     return trackingService.getOwned(id, userId);
+  },
+
+  /**
+   * Fixes an already-resolved log that was marked wrong (e.g. tapped Complete, meant Skip).
+   * Only moves between COMPLETED/SKIPPED/MISSED — PLANNED/IN_PROGRESS aren't valid targets or
+   * sources here, they go through start/skip/complete instead.
+   */
+  async reclassify(id: string, userId: string, input: ReclassifyLogInput) {
+    const log = await trackingService.getOwned(id, userId);
+
+    if (!RESOLVED_STATUSES.includes(log.status)) {
+      throw AppError.invalidState(`Cannot reclassify an activity log with status ${log.status}`);
+    }
+
+    const targetStatus = input.status as LogStatus;
+
+    let actualStart: Date | null = null;
+    let actualEnd: Date | null = null;
+    let completedAt: Date | null = null;
+
+    if (targetStatus === LogStatus.COMPLETED) {
+      if (input.actualStart && input.actualEnd) {
+        actualStart = new Date(input.actualStart);
+        actualEnd = new Date(input.actualEnd);
+        assertValidActualRange(actualStart, actualEnd);
+      } else if (log.plannedStart && log.plannedEnd) {
+        // No explicit actuals given (e.g. reclassifying straight from Skipped/Missed) — the
+        // planned window is the best available guess at what actually happened.
+        actualStart = log.plannedStart;
+        actualEnd = log.plannedEnd;
+      }
+      completedAt = new Date();
+    }
+    // SKIPPED/MISSED never carry actuals or a completion timestamp — clear them so reports
+    // don't keep counting minutes for something that (per the correction) didn't happen.
+
+    const updated = await trackingRepository.update(id, {
+      status: targetStatus,
+      actualStart,
+      actualEnd,
+      completedAt,
+    });
+
+    // Resolved either way — nothing left to remind the user about.
+    await cancelRemindersForActivityLogs([id]);
+
+    return updated;
   },
 
   async correct(id: string, userId: string, input: CorrectLogInput) {
